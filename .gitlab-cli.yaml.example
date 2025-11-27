@@ -1,0 +1,11 @@
+# GitLab CLI Configuration
+# Copy to ~/.gitlab-cli.yaml and fill in your values
+
+gitlab_url: https://gitlab.example.com
+gitlab_token: your-token-here
+
+# Optional defaults
+defaults:
+  max_retries: 3
+  timeout: 5m
+  poll_interval: 5s
