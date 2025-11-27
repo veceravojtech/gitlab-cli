@@ -316,7 +316,7 @@ func runMRMerge(cmd *cobra.Command, args []string) error {
 		case "conflict", "cannot_be_merged":
 			return fmt.Errorf("cannot merge: conflicts detected\nResolve manually: %s", mr.WebURL)
 
-		case "checking", "unchecked":
+		case "checking", "unchecked", "ci_still_running":
 			fmt.Println("→ Waiting for CI/merge check...")
 			time.Sleep(cfg.PollInterval)
 
