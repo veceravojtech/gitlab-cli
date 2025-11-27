@@ -1,0 +1,19 @@
+# Worktrees
+.worktrees/
+
+# Go
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Config files with secrets
+.gitlab-cli.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
