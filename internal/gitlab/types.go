@@ -49,9 +49,10 @@ type PipelineStats struct {
 }
 
 type ListMROptions struct {
-	State     string
-	Scope     string
-	ProjectID int
-	AuthorID  int
-	PerPage   int
+	State         string
+	Scope         string
+	ProjectID     int
+	AuthorID      int
+	PerPage       int
+	ApprovedByIDs string
 }

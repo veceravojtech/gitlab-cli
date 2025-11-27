@@ -31,6 +31,10 @@ func (c *Client) ListMRs(opts ListMROptions) ([]MergeRequest, error) {
 		params.Set("per_page", "20")
 	}
 
+	if opts.ApprovedByIDs != "" {
+		params.Set("approved_by_ids", opts.ApprovedByIDs)
+	}
+
 	path := "/merge_requests?" + params.Encode()
 
 	var mrs []MergeRequest

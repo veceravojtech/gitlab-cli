@@ -50,6 +50,7 @@ var mrMergeCmd = &cobra.Command{
 var (
 	listProject     int
 	listMine        bool
+	listApproved    bool
 	showJSON        bool
 	rebaseNoWait    bool
 	mergeAutoRebase bool
@@ -66,6 +67,7 @@ func init() {
 
 	mrListCmd.Flags().IntVar(&listProject, "project", 0, "filter by project ID")
 	mrListCmd.Flags().BoolVar(&listMine, "mine", false, "only MRs assigned to me")
+	mrListCmd.Flags().BoolVar(&listApproved, "approved", false, "only approved MRs")
 	mrShowCmd.Flags().BoolVar(&showJSON, "json", false, "output as JSON")
 	mrRebaseCmd.Flags().BoolVar(&rebaseNoWait, "no-wait", false, "don't wait for rebase to complete")
 	mrMergeCmd.Flags().BoolVar(&mergeAutoRebase, "auto-rebase", false, "automatically rebase if needed")
@@ -92,6 +94,10 @@ func runMRList(cmd *cobra.Command, args []string) error {
 
 	if listMine {
 		opts.Scope = "assigned_to_me"
+	}
+
+	if listApproved {
+		opts.ApprovedByIDs = "Any"
 	}
 
 	mrs, err := client.ListMRs(opts)
