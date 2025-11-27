@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/user/gitlab-cli/internal/config"
 	"github.com/user/gitlab-cli/internal/gitlab"
+	"github.com/user/gitlab-cli/internal/progress"
 )
 
 var mrCmd = &cobra.Command{
@@ -174,51 +175,50 @@ func runMRRebase(cmd *cobra.Command, args []string) error {
 	}
 
 	client := gitlab.NewClient(cfg.GitLabURL, cfg.GitLabToken)
+	prog := progress.New()
 
-	// Get MR to find project ID and IID
 	mr, err := client.GetMRByGlobalID(mrID)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("MR !%d: %s\n", mr.IID, mr.Title)
-	fmt.Println("→ Triggering rebase...")
+	prog.Header("MR !%d: %s", mr.IID, mr.Title)
+	prog.Action("Triggering rebase...")
 
 	if err := client.RebaseMR(mr.ProjectID, mr.IID); err != nil {
 		return err
 	}
 
 	if rebaseNoWait {
-		fmt.Println("Rebase triggered (not waiting for completion)")
+		prog.Action("Rebase triggered (not waiting for completion)")
 		return nil
 	}
 
-	// Poll for rebase completion
-	fmt.Print("→ Waiting for rebase...")
+	prog.StartWait("Waiting for rebase", nil)
 
 	for {
 		time.Sleep(cfg.PollInterval)
 
 		mr, err = client.GetMR(mr.ProjectID, mr.IID)
 		if err != nil {
+			prog.StopWait()
 			return err
 		}
 
 		if !mr.RebaseInProgress {
 			break
 		}
-
-		fmt.Print(".")
 	}
 
-	fmt.Println()
+	prog.StopWait()
 
 	if mr.MergeError != "" {
+		prog.Error("Rebase failed: %s", mr.MergeError)
 		return fmt.Errorf("rebase failed: %s", mr.MergeError)
 	}
 
-	fmt.Println("✓ Rebase complete")
-	fmt.Printf("Status: %s\n", mr.DetailedMergeStatus)
+	prog.Success("Rebase complete (%s)", prog.TotalTime())
+	prog.Status(mr.DetailedMergeStatus)
 
 	return nil
 }
@@ -247,35 +247,52 @@ func runMRMerge(cmd *cobra.Command, args []string) error {
 	deadline := time.Now().Add(timeout)
 	attempt := 0
 
+	prog := progress.New()
+
+	// Get initial MR info for header
+	mr, err := client.GetMRByGlobalID(mrID)
+	if err != nil {
+		return err
+	}
+	prog.Header("MR !%d: %s", mr.IID, mr.Title)
+
+	var lastStatus string
+
 	for {
 		if time.Now().After(deadline) {
+			prog.StopWait()
 			return fmt.Errorf("timeout exceeded (%s)", mergeTimeout)
 		}
 
-		// Get current MR status
-		mr, err := client.GetMRByGlobalID(mrID)
+		mr, err = client.GetMRByGlobalID(mrID)
 		if err != nil {
+			prog.StopWait()
 			return err
 		}
 
-		fmt.Printf("MR !%d: %s\n", mr.IID, mr.Title)
-		fmt.Printf("Status: %s\n", mr.DetailedMergeStatus)
+		// Only show status if changed
+		if mr.DetailedMergeStatus != lastStatus {
+			prog.StopWait()
+			prog.Status(mr.DetailedMergeStatus)
+			lastStatus = mr.DetailedMergeStatus
+		}
 
 		switch mr.DetailedMergeStatus {
 		case "mergeable", "can_be_merged":
-			fmt.Println("→ Merging...")
+			prog.StopWait()
+			prog.Action("Merging...")
 			if err := client.MergeMR(mr.ProjectID, mr.IID); err != nil {
-				// Check if merge failed due to needing rebase
 				if mergeAutoRebase && strings.Contains(err.Error(), "rebase") {
-					fmt.Println("→ Merge failed, needs rebase")
+					prog.Action("Merge failed, needs rebase")
 					continue
 				}
 				return err
 			}
-			fmt.Println("✓ MR merged successfully")
+			prog.Success("MR merged successfully (%s total)", prog.TotalTime())
 			return nil
 
 		case "need_rebase", "cannot_be_merged_recheck":
+			prog.StopWait()
 			if !mergeAutoRebase {
 				return fmt.Errorf("MR needs rebase. Run with --auto-rebase or: gitlab-cli mr rebase %d", mrID)
 			}
@@ -285,42 +302,55 @@ func runMRMerge(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("max retries exceeded (%d)", mergeMaxRetries)
 			}
 
-			fmt.Printf("→ Triggering rebase... (attempt %d/%d)\n", attempt, mergeMaxRetries)
+			prog.Action("Triggering rebase... (attempt %d/%d)", attempt, mergeMaxRetries)
 			if err := client.RebaseMR(mr.ProjectID, mr.IID); err != nil {
 				return err
 			}
 
-			// Wait for rebase to complete
-			fmt.Print("→ Waiting for rebase...")
+			prog.StartWait("Waiting for rebase", nil)
 			for {
 				time.Sleep(cfg.PollInterval)
 				mr, err = client.GetMR(mr.ProjectID, mr.IID)
 				if err != nil {
+					prog.StopWait()
 					return err
 				}
 				if !mr.RebaseInProgress {
 					break
 				}
-				fmt.Print(".")
 			}
-			fmt.Println()
+			prog.StopWait()
 
 			if mr.MergeError != "" {
+				prog.Error("Rebase failed: %s", mr.MergeError)
 				return fmt.Errorf("rebase failed: %s", mr.MergeError)
 			}
 
-			fmt.Println("→ Rebase complete")
-			fmt.Println("→ Checking merge status...")
-			// Loop back to check status again
+			prog.Action("Rebase complete")
+			lastStatus = "" // Force status refresh
 
 		case "conflict", "cannot_be_merged":
+			prog.StopWait()
+			prog.Error("Cannot merge: conflicts detected")
 			return fmt.Errorf("cannot merge: conflicts detected\nResolve manually: %s", mr.WebURL)
 
 		case "checking", "unchecked", "ci_still_running":
-			fmt.Println("→ Waiting for CI/merge check...")
+			statsFunc := func() string {
+				if mr.HeadPipeline == nil {
+					return ""
+				}
+				stats, err := client.GetPipelineStats(mr.ProjectID, mr.HeadPipeline.ID)
+				if err != nil {
+					return ""
+				}
+				return fmt.Sprintf("✓ %d passed | ● %d running | ○ %d pending",
+					stats.Passed, stats.Running, stats.Pending)
+			}
+			prog.StartWait("Waiting for CI", statsFunc)
 			time.Sleep(cfg.PollInterval)
 
 		default:
+			prog.StopWait()
 			return fmt.Errorf("unexpected merge status: %s", mr.DetailedMergeStatus)
 		}
 	}

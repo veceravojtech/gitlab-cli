@@ -2,6 +2,7 @@
 .worktrees/
 
 # Go
+gitlab-cli
 bin/
 *.exe
 *.exe~

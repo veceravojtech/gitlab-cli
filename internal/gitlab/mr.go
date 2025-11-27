@@ -99,3 +99,37 @@ func (c *Client) MergeMR(projectID, iid int) error {
 
 	return nil
 }
+
+func (c *Client) GetPipelineJobs(projectID, pipelineID int) ([]PipelineJob, error) {
+	path := fmt.Sprintf("/projects/%d/pipelines/%d/jobs?per_page=100", projectID, pipelineID)
+
+	var jobs []PipelineJob
+	if err := c.get(path, &jobs); err != nil {
+		return nil, fmt.Errorf("getting pipeline jobs: %w", err)
+	}
+
+	return jobs, nil
+}
+
+func (c *Client) GetPipelineStats(projectID, pipelineID int) (*PipelineStats, error) {
+	jobs, err := c.GetPipelineJobs(projectID, pipelineID)
+	if err != nil {
+		return nil, err
+	}
+
+	stats := &PipelineStats{}
+	for _, job := range jobs {
+		switch job.Status {
+		case "success":
+			stats.Passed++
+		case "running":
+			stats.Running++
+		case "pending", "created":
+			stats.Pending++
+		case "failed":
+			stats.Failed++
+		}
+	}
+
+	return stats, nil
+}

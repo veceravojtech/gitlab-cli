@@ -21,8 +21,31 @@ type MergeRequest struct {
 	WebURL               string `json:"web_url"`
 	DetailedMergeStatus  string `json:"detailed_merge_status"`
 	HasConflicts         bool   `json:"has_conflicts"`
-	RebaseInProgress     bool   `json:"rebase_in_progress"`
-	MergeError           string `json:"merge_error"`
+	RebaseInProgress     bool      `json:"rebase_in_progress"`
+	MergeError           string    `json:"merge_error"`
+	HeadPipeline         *Pipeline `json:"head_pipeline"`
+}
+
+type Pipeline struct {
+	ID     int    `json:"id"`
+	Status string `json:"status"`
+	Ref    string `json:"ref"`
+	SHA    string `json:"sha"`
+	WebURL string `json:"web_url"`
+}
+
+type PipelineJob struct {
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Stage  string `json:"stage"`
+}
+
+type PipelineStats struct {
+	Passed  int
+	Running int
+	Pending int
+	Failed  int
 }
 
 type ListMROptions struct {
