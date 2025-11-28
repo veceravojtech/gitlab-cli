@@ -56,3 +56,49 @@ type ListMROptions struct {
 	PerPage       int
 	ApprovedByIDs string
 }
+
+type Event struct {
+	ID          int        `json:"id"`
+	ActionName  string     `json:"action_name"`
+	CreatedAt   string     `json:"created_at"`
+	ProjectID   int        `json:"project_id"`
+	TargetType  string     `json:"target_type"`
+	TargetID    int        `json:"target_id"`
+	TargetIID   int        `json:"target_iid"`
+	TargetTitle string     `json:"target_title"`
+	PushData    *PushData  `json:"push_data"`
+	Note        *NoteData  `json:"note"`
+}
+
+type PushData struct {
+	CommitCount int    `json:"commit_count"`
+	Action      string `json:"action"`
+	RefType     string `json:"ref_type"`
+	Ref         string `json:"ref"`
+	CommitTitle string `json:"commit_title"`
+}
+
+type NoteData struct {
+	NoteableType string `json:"noteable_type"`
+	Body         string `json:"body"`
+}
+
+type Project struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+type ActivityEntry struct {
+	Date        string                 `json:"date"`
+	Time        string                 `json:"time"`
+	Type        string                 `json:"type"`
+	Project     string                 `json:"project"`
+	Description string                 `json:"description"`
+	Details     map[string]interface{} `json:"details,omitempty"`
+}
+
+type ListEventsOptions struct {
+	After  string
+	Before string
+}
