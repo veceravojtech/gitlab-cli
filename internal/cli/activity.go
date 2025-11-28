@@ -82,6 +82,18 @@ func runActivityList(cmd *cobra.Command, args []string) error {
 		fromDate, toDate = getMonthRange(activityPrev)
 	}
 
+	// Validate date format if provided
+	if activityFrom != "" {
+		if _, err := time.Parse("2006-01-02", activityFrom); err != nil {
+			return fmt.Errorf("invalid --from date format, use YYYY-MM-DD")
+		}
+	}
+	if activityTo != "" {
+		if _, err := time.Parse("2006-01-02", activityTo); err != nil {
+			return fmt.Errorf("invalid --to date format, use YYYY-MM-DD")
+		}
+	}
+
 	// Fetch events
 	events, err := client.GetEvents(gitlab.ListEventsOptions{
 		After:  fromDate,
