@@ -13,12 +13,12 @@ A command-line tool for managing GitLab merge requests with automated rebase and
 
 ## Installation
 
-Download the latest binary for your platform from [Releases](https://github.com/user/gitlab-cli/releases).
+Download the latest binary for your platform from [Releases](https://github.com/veceravojtech/gitlab-cli/releases).
 
 ### Linux
 
 ```bash
-curl -L https://github.com/user/gitlab-cli/releases/latest/download/gitlab-cli-linux-amd64 -o gitlab-cli
+curl -L https://github.com/veceravojtech/gitlab-cli/releases/latest/download/gitlab-cli-linux-amd64 -o gitlab-cli
 chmod +x gitlab-cli
 sudo mv gitlab-cli /usr/local/bin/
 ```
@@ -26,7 +26,7 @@ sudo mv gitlab-cli /usr/local/bin/
 ### macOS
 
 ```bash
-curl -L https://github.com/user/gitlab-cli/releases/latest/download/gitlab-cli-darwin-amd64 -o gitlab-cli
+curl -L https://github.com/veceravojtech/gitlab-cli/releases/latest/download/gitlab-cli-darwin-amd64 -o gitlab-cli
 chmod +x gitlab-cli
 sudo mv gitlab-cli /usr/local/bin/
 ```
@@ -128,7 +128,7 @@ The merge command automatically waits for CI pipelines to complete and shows liv
 ### Building from Source
 
 ```bash
-git clone https://github.com/user/gitlab-cli.git
+git clone https://github.com/veceravojtech/gitlab-cli.git
 cd gitlab-cli
 go build -o gitlab-cli ./cmd/gitlab-cli
 ```
