@@ -67,6 +67,13 @@ var mrAutoMergeCmd = &cobra.Command{
 	RunE:  runMRAutoMerge,
 }
 
+var mrReviewerCmd = &cobra.Command{
+	Use:   "reviewer <mr-id>",
+	Short: "Manage reviewers on a merge request",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runMRReviewer,
+}
+
 var (
 	listProject     int
 	listMine        bool
@@ -93,6 +100,14 @@ var (
 	labelAdd    []string
 	labelRemove []string
 	labelList   bool
+
+	// mr auto-merge flags
+	autoMergeCancel bool
+
+	// mr reviewer flags
+	reviewerAdd    []string
+	reviewerRemove []string
+	reviewerList   bool
 )
 
 func init() {
@@ -103,6 +118,8 @@ func init() {
 	mrCmd.AddCommand(mrMergeCmd)
 	mrCmd.AddCommand(mrCreateCmd)
 	mrCmd.AddCommand(mrLabelCmd)
+	mrCmd.AddCommand(mrAutoMergeCmd)
+	mrCmd.AddCommand(mrReviewerCmd)
 
 	mrListCmd.Flags().IntVar(&listProject, "project", 0, "filter by project ID")
 	mrListCmd.Flags().BoolVar(&listMine, "mine", false, "only MRs assigned to me")
@@ -131,6 +148,12 @@ func init() {
 	mrLabelCmd.Flags().StringSliceVar(&labelAdd, "add", nil, "add label (repeatable)")
 	mrLabelCmd.Flags().StringSliceVar(&labelRemove, "remove", nil, "remove label (repeatable)")
 	mrLabelCmd.Flags().BoolVar(&labelList, "list", false, "list current labels")
+
+	mrAutoMergeCmd.Flags().BoolVar(&autoMergeCancel, "cancel", false, "cancel auto-merge")
+
+	mrReviewerCmd.Flags().StringSliceVar(&reviewerAdd, "add", nil, "add reviewer by username or ID (repeatable)")
+	mrReviewerCmd.Flags().StringSliceVar(&reviewerRemove, "remove", nil, "remove reviewer by username or ID (repeatable)")
+	mrReviewerCmd.Flags().BoolVar(&reviewerList, "list", false, "list current reviewers")
 }
 
 func runMRList(cmd *cobra.Command, args []string) error {
@@ -529,6 +552,92 @@ func runMRLabel(cmd *cobra.Command, args []string) error {
 	} else {
 		for _, l := range mr.Labels {
 			fmt.Printf("  • %s\n", l)
+		}
+	}
+
+	return nil
+}
+
+func runMRReviewer(cmd *cobra.Command, args []string) error {
+	mrID, err := strconv.Atoi(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid MR ID: %s", args[0])
+	}
+
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
+	client := gitlab.NewClient(cfg.GitLabURL, cfg.GitLabToken)
+
+	mr, err := client.GetMRByGlobalID(mrID)
+	if err != nil {
+		return err
+	}
+
+	// If no add/remove flags, just list reviewers
+	if len(reviewerAdd) == 0 && len(reviewerRemove) == 0 {
+		reviewerList = true
+	}
+
+	if reviewerList && len(reviewerAdd) == 0 && len(reviewerRemove) == 0 {
+		fmt.Printf("Reviewers on !%d:\n", mr.IID)
+		if len(mr.Reviewers) == 0 {
+			fmt.Println("  (none)")
+		} else {
+			for _, r := range mr.Reviewers {
+				fmt.Printf("  • %s (%s)\n", r.Username, r.Name)
+			}
+		}
+		return nil
+	}
+
+	// Build current reviewer ID set
+	reviewerSet := make(map[int]bool)
+	for _, r := range mr.Reviewers {
+		reviewerSet[r.ID] = true
+	}
+
+	// Resolve and add new reviewers
+	for _, ref := range reviewerAdd {
+		id, err := client.ResolveUserID(ref)
+		if err != nil {
+			return fmt.Errorf("resolving user '%s': %w", ref, err)
+		}
+		reviewerSet[id] = true
+	}
+
+	// Resolve and remove reviewers
+	for _, ref := range reviewerRemove {
+		id, err := client.ResolveUserID(ref)
+		if err != nil {
+			return fmt.Errorf("resolving user '%s': %w", ref, err)
+		}
+		delete(reviewerSet, id)
+	}
+
+	// Convert back to slice
+	newReviewerIDs := make([]int, 0, len(reviewerSet))
+	for id := range reviewerSet {
+		newReviewerIDs = append(newReviewerIDs, id)
+	}
+
+	mr, err = client.UpdateMRReviewers(mr.ProjectID, mr.IID, newReviewerIDs)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Reviewers on !%d:\n", mr.IID)
+	if len(mr.Reviewers) == 0 {
+		fmt.Println("  (none)")
+	} else {
+		for _, r := range mr.Reviewers {
+			fmt.Printf("  • %s (%s)\n", r.Username, r.Name)
 		}
 	}
 
