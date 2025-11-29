@@ -53,6 +53,20 @@ var mrCreateCmd = &cobra.Command{
 	RunE:  runMRCreate,
 }
 
+var mrLabelCmd = &cobra.Command{
+	Use:   "label <mr-id>",
+	Short: "Manage labels on a merge request",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runMRLabel,
+}
+
+var mrAutoMergeCmd = &cobra.Command{
+	Use:   "auto-merge <mr-id>",
+	Short: "Enable or cancel merge when pipeline succeeds",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runMRAutoMerge,
+}
+
 var (
 	listProject     int
 	listMine        bool
@@ -74,6 +88,11 @@ var (
 	createRemoveSourceBranch bool
 	createAllowCollab        bool
 	createJSON               bool
+
+	// mr label flags
+	labelAdd    []string
+	labelRemove []string
+	labelList   bool
 )
 
 func init() {
@@ -83,6 +102,7 @@ func init() {
 	mrCmd.AddCommand(mrRebaseCmd)
 	mrCmd.AddCommand(mrMergeCmd)
 	mrCmd.AddCommand(mrCreateCmd)
+	mrCmd.AddCommand(mrLabelCmd)
 
 	mrListCmd.Flags().IntVar(&listProject, "project", 0, "filter by project ID")
 	mrListCmd.Flags().BoolVar(&listMine, "mine", false, "only MRs assigned to me")
@@ -107,6 +127,10 @@ func init() {
 	mrCreateCmd.MarkFlagRequired("source")
 	mrCreateCmd.MarkFlagRequired("target")
 	mrCreateCmd.MarkFlagRequired("title")
+
+	mrLabelCmd.Flags().StringSliceVar(&labelAdd, "add", nil, "add label (repeatable)")
+	mrLabelCmd.Flags().StringSliceVar(&labelRemove, "remove", nil, "remove label (repeatable)")
+	mrLabelCmd.Flags().BoolVar(&labelList, "list", false, "list current labels")
 }
 
 func runMRList(cmd *cobra.Command, args []string) error {
@@ -432,6 +456,81 @@ func runMRCreate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Created MR !%d: %s\n", mr.IID, mr.Title)
 	fmt.Printf("URL: %s\n", mr.WebURL)
+
+	return nil
+}
+
+func runMRLabel(cmd *cobra.Command, args []string) error {
+	mrID, err := strconv.Atoi(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid MR ID: %s", args[0])
+	}
+
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
+	client := gitlab.NewClient(cfg.GitLabURL, cfg.GitLabToken)
+
+	mr, err := client.GetMRByGlobalID(mrID)
+	if err != nil {
+		return err
+	}
+
+	// If no add/remove flags, just list labels
+	if len(labelAdd) == 0 && len(labelRemove) == 0 {
+		labelList = true
+	}
+
+	if labelList && len(labelAdd) == 0 && len(labelRemove) == 0 {
+		fmt.Printf("Labels on !%d:\n", mr.IID)
+		if len(mr.Labels) == 0 {
+			fmt.Println("  (none)")
+		} else {
+			for _, l := range mr.Labels {
+				fmt.Printf("  • %s\n", l)
+			}
+		}
+		return nil
+	}
+
+	// Compute new label set
+	labelSet := make(map[string]bool)
+	for _, l := range mr.Labels {
+		labelSet[l] = true
+	}
+
+	for _, l := range labelAdd {
+		labelSet[l] = true
+	}
+
+	for _, l := range labelRemove {
+		delete(labelSet, l)
+	}
+
+	newLabels := make([]string, 0, len(labelSet))
+	for l := range labelSet {
+		newLabels = append(newLabels, l)
+	}
+
+	mr, err = client.UpdateMRLabels(mr.ProjectID, mr.IID, newLabels)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Labels on !%d:\n", mr.IID)
+	if len(mr.Labels) == 0 {
+		fmt.Println("  (none)")
+	} else {
+		for _, l := range mr.Labels {
+			fmt.Printf("  • %s\n", l)
+		}
+	}
 
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 func (c *Client) ListMRs(opts ListMROptions) ([]MergeRequest, error) {
@@ -174,4 +175,58 @@ func (c *Client) CreateMR(projectID string, opts CreateMROptions) (*MergeRequest
 	}
 
 	return &mr, nil
+}
+
+func (c *Client) UpdateMRLabels(projectID, iid int, labels []string) (*MergeRequest, error) {
+	path := fmt.Sprintf("/projects/%d/merge_requests/%d", projectID, iid)
+
+	body := map[string]interface{}{
+		"labels": strings.Join(labels, ","),
+	}
+
+	var mr MergeRequest
+	if err := c.putWithBody(path, body, &mr); err != nil {
+		return nil, fmt.Errorf("updating MR labels: %w", err)
+	}
+
+	return &mr, nil
+}
+
+func (c *Client) UpdateMRReviewers(projectID, iid int, reviewerIDs []int) (*MergeRequest, error) {
+	path := fmt.Sprintf("/projects/%d/merge_requests/%d", projectID, iid)
+
+	body := map[string]interface{}{
+		"reviewer_ids": reviewerIDs,
+	}
+
+	var mr MergeRequest
+	if err := c.putWithBody(path, body, &mr); err != nil {
+		return nil, fmt.Errorf("updating MR reviewers: %w", err)
+	}
+
+	return &mr, nil
+}
+
+func (c *Client) SetAutoMerge(projectID, iid int) error {
+	path := fmt.Sprintf("/projects/%d/merge_requests/%d/merge", projectID, iid)
+
+	body := map[string]interface{}{
+		"merge_when_pipeline_succeeds": true,
+	}
+
+	if err := c.putWithBody(path, body, nil); err != nil {
+		return fmt.Errorf("enabling auto-merge: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Client) CancelAutoMerge(projectID, iid int) error {
+	path := fmt.Sprintf("/projects/%d/merge_requests/%d/cancel_merge_when_pipeline_succeeds", projectID, iid)
+
+	if err := c.post(path, nil, nil); err != nil {
+		return fmt.Errorf("cancelling auto-merge: %w", err)
+	}
+
+	return nil
 }
