@@ -230,3 +230,36 @@ func (c *Client) CancelAutoMerge(projectID, iid int) error {
 
 	return nil
 }
+
+func (c *Client) GetMRDiscussions(projectID, iid int) ([]Discussion, error) {
+	path := fmt.Sprintf("/projects/%d/merge_requests/%d/discussions?per_page=100", projectID, iid)
+
+	var discussions []Discussion
+	if err := c.get(path, &discussions); err != nil {
+		return nil, fmt.Errorf("getting MR discussions: %w", err)
+	}
+
+	return discussions, nil
+}
+
+func (c *Client) GetMRApprovals(projectID, iid int) (*ApprovalState, error) {
+	path := fmt.Sprintf("/projects/%d/merge_requests/%d/approvals", projectID, iid)
+
+	var approvals ApprovalState
+	if err := c.get(path, &approvals); err != nil {
+		return nil, fmt.Errorf("getting MR approvals: %w", err)
+	}
+
+	return &approvals, nil
+}
+
+func (c *Client) GetMRLabelEvents(projectID, iid int) ([]LabelEvent, error) {
+	path := fmt.Sprintf("/projects/%d/merge_requests/%d/resource_label_events?per_page=100", projectID, iid)
+
+	var events []LabelEvent
+	if err := c.get(path, &events); err != nil {
+		return nil, fmt.Errorf("getting MR label events: %w", err)
+	}
+
+	return events, nil
+}

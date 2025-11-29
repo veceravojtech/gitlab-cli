@@ -79,6 +79,8 @@ var (
 	listMine        bool
 	listApproved    bool
 	showJSON        bool
+	showDetail      bool
+	showUnresolved  bool
 	rebaseNoWait    bool
 	mergeAutoRebase bool
 	mergeMaxRetries int
@@ -125,6 +127,8 @@ func init() {
 	mrListCmd.Flags().BoolVar(&listMine, "mine", false, "only MRs assigned to me")
 	mrListCmd.Flags().BoolVar(&listApproved, "approved", false, "only approved MRs")
 	mrShowCmd.Flags().BoolVar(&showJSON, "json", false, "output as JSON")
+	mrShowCmd.Flags().BoolVar(&showDetail, "detail", false, "show full activity feed")
+	mrShowCmd.Flags().BoolVar(&showUnresolved, "unresolved", false, "show only unresolved discussions (implies --detail)")
 	mrRebaseCmd.Flags().BoolVar(&rebaseNoWait, "no-wait", false, "don't wait for rebase to complete")
 	mrMergeCmd.Flags().BoolVar(&mergeAutoRebase, "auto-rebase", false, "automatically rebase if needed")
 	mrMergeCmd.Flags().IntVar(&mergeMaxRetries, "max-retries", 3, "max rebase attempts")
@@ -242,6 +246,15 @@ func runMRShow(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Source:       %s → %s\n", mr.SourceBranch, mr.TargetBranch)
 	fmt.Printf("Status:       %s\n", mr.DetailedMergeStatus)
 	fmt.Printf("URL:          %s\n", mr.WebURL)
+
+	// Show activity feed if --detail or --unresolved is specified
+	if showDetail || showUnresolved {
+		fmt.Println()
+		fmt.Println("── Activity ──")
+		if err := showMRActivity(client, mr, showUnresolved); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -642,4 +655,166 @@ func runMRReviewer(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func showMRActivity(client *gitlab.Client, mr *gitlab.MergeRequest, unresolvedOnly bool) error {
+	// Fetch discussions
+	discussions, err := client.GetMRDiscussions(mr.ProjectID, mr.IID)
+	if err != nil {
+		return err
+	}
+
+	// Fetch approvals
+	approvals, err := client.GetMRApprovals(mr.ProjectID, mr.IID)
+	if err != nil {
+		// Non-fatal, some instances may not have approvals enabled
+		approvals = &gitlab.ApprovalState{}
+	}
+
+	// Fetch label events
+	labelEvents, err := client.GetMRLabelEvents(mr.ProjectID, mr.IID)
+	if err != nil {
+		// Non-fatal
+		labelEvents = []gitlab.LabelEvent{}
+	}
+
+	// Collect all activities with timestamps for sorting
+	type activity struct {
+		timestamp string
+		content   string
+	}
+	var activities []activity
+
+	// Process discussions
+	for _, d := range discussions {
+		if len(d.Notes) == 0 {
+			continue
+		}
+
+		// Check if discussion is resolved (for filtering)
+		isResolved := false
+		for _, n := range d.Notes {
+			if n.Resolvable && n.Resolved {
+				isResolved = true
+				break
+			}
+		}
+
+		if unresolvedOnly && isResolved {
+			continue
+		}
+
+		// Skip system notes unless they're important
+		firstNote := d.Notes[0]
+		if firstNote.System {
+			continue
+		}
+
+		var content strings.Builder
+
+		// Format location if it's an inline comment
+		location := ""
+		if firstNote.Position != nil && firstNote.Position.NewPath != "" {
+			location = fmt.Sprintf(" on %s:%d", firstNote.Position.NewPath, firstNote.Position.NewLine)
+		}
+
+		// First note
+		content.WriteString(fmt.Sprintf("[%s] %s commented%s:\n",
+			formatTimestamp(firstNote.CreatedAt),
+			firstNote.Author.Username,
+			location))
+		content.WriteString(fmt.Sprintf("  %s\n", wrapText(firstNote.Body, 70)))
+
+		// Replies
+		for i, note := range d.Notes[1:] {
+			if note.System {
+				continue
+			}
+			prefix := "├─"
+			if i == len(d.Notes)-2 {
+				prefix = "└─"
+			}
+			content.WriteString(fmt.Sprintf("  %s [%s] %s replied:\n",
+				prefix,
+				formatTimestamp(note.CreatedAt),
+				note.Author.Username))
+			content.WriteString(fmt.Sprintf("  │    %s\n", wrapText(note.Body, 65)))
+		}
+
+		// Show resolved status
+		if firstNote.Resolvable {
+			if isResolved {
+				content.WriteString("  └─ ✓ Resolved\n")
+			} else {
+				content.WriteString("  └─ ○ Unresolved\n")
+			}
+		}
+
+		activities = append(activities, activity{
+			timestamp: firstNote.CreatedAt,
+			content:   content.String(),
+		})
+	}
+
+	// Add approvals
+	if approvals.Approved && len(approvals.Approvers) > 0 {
+		for _, a := range approvals.Approvers {
+			activities = append(activities, activity{
+				timestamp: "2099-01-01", // Approvals don't have timestamp, show at end
+				content:   fmt.Sprintf("[approved] %s approved this MR\n", a.User.Username),
+			})
+		}
+	}
+
+	// Add label events
+	for _, e := range labelEvents {
+		action := "added"
+		if e.Action == "remove" {
+			action = "removed"
+		}
+		activities = append(activities, activity{
+			timestamp: e.CreatedAt,
+			content:   fmt.Sprintf("[%s] label %s: %s\n", formatTimestamp(e.CreatedAt), action, e.Label.Name),
+		})
+	}
+
+	// Sort by timestamp (simple string sort works for ISO timestamps)
+	for i := 0; i < len(activities); i++ {
+		for j := i + 1; j < len(activities); j++ {
+			if activities[i].timestamp > activities[j].timestamp {
+				activities[i], activities[j] = activities[j], activities[i]
+			}
+		}
+	}
+
+	// Print activities
+	if len(activities) == 0 {
+		fmt.Println("  (no activity)")
+	} else {
+		for _, a := range activities {
+			fmt.Print(a.content)
+			fmt.Println()
+		}
+	}
+
+	return nil
+}
+
+func formatTimestamp(ts string) string {
+	// Parse ISO timestamp and format nicely
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return ts[:16] // Fallback: just trim
+	}
+	return t.Format("2006-01-02 15:04")
+}
+
+func wrapText(text string, width int) string {
+	// Simple text wrapper - just truncate long lines for now
+	lines := strings.Split(text, "\n")
+	if len(lines) > 3 {
+		lines = lines[:3]
+		lines = append(lines, "...")
+	}
+	return strings.Join(lines, "\n       ")
 }
