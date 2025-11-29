@@ -137,3 +137,41 @@ func (c *Client) GetPipelineStats(projectID, pipelineID int) (*PipelineStats, er
 
 	return stats, nil
 }
+
+func (c *Client) CreateMR(projectID string, opts CreateMROptions) (*MergeRequest, error) {
+	encoded := url.PathEscape(projectID)
+	path := fmt.Sprintf("/projects/%s/merge_requests", encoded)
+
+	body := map[string]interface{}{
+		"source_branch": opts.SourceBranch,
+		"target_branch": opts.TargetBranch,
+		"title":         opts.Title,
+	}
+
+	if opts.Description != "" {
+		body["description"] = opts.Description
+	}
+
+	if opts.Draft {
+		body["draft"] = true
+	}
+
+	if opts.Squash {
+		body["squash"] = true
+	}
+
+	if opts.RemoveSourceBranch {
+		body["remove_source_branch"] = true
+	}
+
+	if opts.AllowCollaboration {
+		body["allow_collaboration"] = true
+	}
+
+	var mr MergeRequest
+	if err := c.post(path, body, &mr); err != nil {
+		return nil, fmt.Errorf("creating MR: %w", err)
+	}
+
+	return &mr, nil
+}

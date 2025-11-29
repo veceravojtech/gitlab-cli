@@ -47,6 +47,12 @@ var mrMergeCmd = &cobra.Command{
 	RunE:  runMRMerge,
 }
 
+var mrCreateCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create a merge request",
+	RunE:  runMRCreate,
+}
+
 var (
 	listProject     int
 	listMine        bool
@@ -56,6 +62,18 @@ var (
 	mergeAutoRebase bool
 	mergeMaxRetries int
 	mergeTimeout    string
+
+	// mr create flags
+	createProject            string
+	createSource             string
+	createTarget             string
+	createTitle              string
+	createDescription        string
+	createDraft              bool
+	createSquash             bool
+	createRemoveSourceBranch bool
+	createAllowCollab        bool
+	createJSON               bool
 )
 
 func init() {
@@ -64,6 +82,7 @@ func init() {
 	mrCmd.AddCommand(mrShowCmd)
 	mrCmd.AddCommand(mrRebaseCmd)
 	mrCmd.AddCommand(mrMergeCmd)
+	mrCmd.AddCommand(mrCreateCmd)
 
 	mrListCmd.Flags().IntVar(&listProject, "project", 0, "filter by project ID")
 	mrListCmd.Flags().BoolVar(&listMine, "mine", false, "only MRs assigned to me")
@@ -73,6 +92,21 @@ func init() {
 	mrMergeCmd.Flags().BoolVar(&mergeAutoRebase, "auto-rebase", false, "automatically rebase if needed")
 	mrMergeCmd.Flags().IntVar(&mergeMaxRetries, "max-retries", 3, "max rebase attempts")
 	mrMergeCmd.Flags().StringVar(&mergeTimeout, "timeout", "5m", "overall timeout")
+
+	mrCreateCmd.Flags().StringVar(&createProject, "project", "", "project ID or path (required)")
+	mrCreateCmd.Flags().StringVar(&createSource, "source", "", "source branch (required)")
+	mrCreateCmd.Flags().StringVar(&createTarget, "target", "", "target branch (required)")
+	mrCreateCmd.Flags().StringVar(&createTitle, "title", "", "MR title (required)")
+	mrCreateCmd.Flags().StringVar(&createDescription, "description", "", "MR description")
+	mrCreateCmd.Flags().BoolVar(&createDraft, "draft", false, "create as draft MR")
+	mrCreateCmd.Flags().BoolVar(&createSquash, "squash", false, "enable squash on merge")
+	mrCreateCmd.Flags().BoolVar(&createRemoveSourceBranch, "remove-source-branch", false, "delete source branch after merge")
+	mrCreateCmd.Flags().BoolVar(&createAllowCollab, "allow-collaboration", false, "allow commits from upstream members")
+	mrCreateCmd.Flags().BoolVar(&createJSON, "json", false, "output as JSON")
+	mrCreateCmd.MarkFlagRequired("project")
+	mrCreateCmd.MarkFlagRequired("source")
+	mrCreateCmd.MarkFlagRequired("target")
+	mrCreateCmd.MarkFlagRequired("title")
 }
 
 func runMRList(cmd *cobra.Command, args []string) error {
@@ -360,4 +394,44 @@ func runMRMerge(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("unexpected merge status: %s", mr.DetailedMergeStatus)
 		}
 	}
+}
+
+func runMRCreate(cmd *cobra.Command, args []string) error {
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
+	client := gitlab.NewClient(cfg.GitLabURL, cfg.GitLabToken)
+
+	opts := gitlab.CreateMROptions{
+		SourceBranch:       createSource,
+		TargetBranch:       createTarget,
+		Title:              createTitle,
+		Description:        createDescription,
+		Draft:              createDraft,
+		Squash:             createSquash,
+		RemoveSourceBranch: createRemoveSourceBranch,
+		AllowCollaboration: createAllowCollab,
+	}
+
+	mr, err := client.CreateMR(createProject, opts)
+	if err != nil {
+		return err
+	}
+
+	if createJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(mr)
+	}
+
+	fmt.Printf("Created MR !%d: %s\n", mr.IID, mr.Title)
+	fmt.Printf("URL: %s\n", mr.WebURL)
+
+	return nil
 }
