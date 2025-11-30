@@ -148,6 +148,8 @@ type ActivityEntry struct {
 	Time        string                 `json:"time"`
 	Type        string                 `json:"type"`
 	Project     string                 `json:"project"`
+	Source      string                 `json:"source,omitempty"`
+	Target      string                 `json:"target,omitempty"`
 	Description string                 `json:"description"`
 	Details     map[string]interface{} `json:"details,omitempty"`
 }
