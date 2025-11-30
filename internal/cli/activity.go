@@ -118,10 +118,13 @@ func runActivityList(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// MR cache for branch lookups (key: "projectID-mrIID")
+	mrCache := make(map[string]*gitlab.MergeRequest)
+
 	// Transform to ActivityEntry
 	activities := make([]gitlab.ActivityEntry, 0, len(events))
 	for _, event := range events {
-		entry := transformEvent(event, projectCache)
+		entry := transformEvent(event, projectCache, mrCache, client)
 		activities = append(activities, entry)
 	}
 
@@ -135,7 +138,7 @@ func runActivityList(cmd *cobra.Command, args []string) error {
 	return outputTable(activities, fromDate, toDate)
 }
 
-func transformEvent(event gitlab.Event, projectCache map[int]string) gitlab.ActivityEntry {
+func transformEvent(event gitlab.Event, projectCache map[int]string, mrCache map[string]*gitlab.MergeRequest, client *gitlab.Client) gitlab.ActivityEntry {
 	// Parse timestamp
 	t, _ := time.Parse(time.RFC3339, event.CreatedAt)
 	date := t.Format("2006-01-02")
@@ -147,27 +150,32 @@ func transformEvent(event gitlab.Event, projectCache map[int]string) gitlab.Acti
 		projectName = projectCache[event.ProjectID]
 	}
 
-	// Build description and details
+	// Build description, details, and branch info
 	description := ""
 	details := make(map[string]interface{})
+	var source, target string
 
 	switch {
 	case event.PushData != nil:
 		pd := event.PushData
+		source = pd.Ref
+		details["branch"] = pd.Ref
 		if pd.CommitCount > 0 {
-			description = fmt.Sprintf("%d commit(s) to %s", pd.CommitCount, pd.Ref)
-			details["branch"] = pd.Ref
+			description = fmt.Sprintf("%d commit(s)", pd.CommitCount)
 			details["commits"] = pd.CommitCount
 		} else if pd.Action == "created" {
-			description = fmt.Sprintf("created branch %s", pd.Ref)
-			details["branch"] = pd.Ref
+			description = "created branch"
 			details["action"] = "created"
 		} else if pd.Action == "removed" {
-			description = fmt.Sprintf("deleted branch %s", pd.Ref)
-			details["branch"] = pd.Ref
+			description = "deleted branch"
 			details["action"] = "deleted"
 		}
 	case event.TargetType == "MergeRequest":
+		mr := getMRCached(event.ProjectID, event.TargetIID, mrCache, client)
+		if mr != nil {
+			source = mr.SourceBranch
+			target = mr.TargetBranch
+		}
 		description = fmt.Sprintf("MR !%d: %s", event.TargetIID, event.TargetTitle)
 		details["mr_iid"] = event.TargetIID
 		details["title"] = event.TargetTitle
@@ -182,6 +190,14 @@ func transformEvent(event gitlab.Event, projectCache map[int]string) gitlab.Acti
 			description += ": " + event.TargetTitle
 		}
 		details["noteable_type"] = noteType
+		// If comment is on MR, get branch info
+		if event.Note.NoteableType == "MergeRequest" {
+			mr := getMRCached(event.ProjectID, event.TargetIID, mrCache, client)
+			if mr != nil {
+				source = mr.SourceBranch
+				target = mr.TargetBranch
+			}
+		}
 	default:
 		if event.TargetTitle != "" {
 			description = event.TargetTitle
@@ -195,9 +211,25 @@ func transformEvent(event gitlab.Event, projectCache map[int]string) gitlab.Acti
 		Time:        timeStr,
 		Type:        event.ActionName,
 		Project:     projectName,
+		Source:      source,
+		Target:      target,
 		Description: description,
 		Details:     details,
 	}
+}
+
+func getMRCached(projectID, mrIID int, cache map[string]*gitlab.MergeRequest, client *gitlab.Client) *gitlab.MergeRequest {
+	key := fmt.Sprintf("%d-%d", projectID, mrIID)
+	if mr, ok := cache[key]; ok {
+		return mr
+	}
+	mr, err := client.GetMR(projectID, mrIID)
+	if err != nil {
+		cache[key] = nil
+		return nil
+	}
+	cache[key] = mr
+	return mr
 }
 
 func truncate(s string, maxLen int) string {
