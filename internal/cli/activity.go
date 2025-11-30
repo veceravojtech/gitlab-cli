@@ -284,7 +284,7 @@ func extractTaskFromBranch(branchName string) string {
 func extractTaskFromString(s string) string {
 	matches := taskRegex.FindStringSubmatch(s)
 	if len(matches) > 1 {
-		return matches[1]
+		return "#" + matches[1]
 	}
 	return ""
 }
