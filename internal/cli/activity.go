@@ -315,12 +315,12 @@ func outputCSV(activities []gitlab.ActivityEntry) error {
 	defer w.Flush()
 
 	// Header
-	if err := w.Write([]string{"date", "time", "type", "project", "source", "target", "description"}); err != nil {
+	if err := w.Write([]string{"date", "time", "type", "project", "source", "target", "task", "description"}); err != nil {
 		return err
 	}
 
 	for _, a := range activities {
-		if err := w.Write([]string{a.Date, a.Time, a.Type, a.Project, a.Source, a.Target, a.Description}); err != nil {
+		if err := w.Write([]string{a.Date, a.Time, a.Type, a.Project, a.Source, a.Target, a.Task, a.Description}); err != nil {
 			return err
 		}
 	}
