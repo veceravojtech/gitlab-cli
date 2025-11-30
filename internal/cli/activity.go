@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -103,16 +104,19 @@ func runActivityList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Build project cache
+	// Build project cache and default branch cache
 	projectCache := make(map[int]string)
+	defaultBranchCache := make(map[int]string)
 	for _, event := range events {
 		if event.ProjectID > 0 {
 			if _, ok := projectCache[event.ProjectID]; !ok {
 				proj, err := client.GetProject(event.ProjectID)
 				if err == nil {
 					projectCache[event.ProjectID] = proj.Name
+					defaultBranchCache[event.ProjectID] = proj.DefaultBranch
 				} else {
 					projectCache[event.ProjectID] = fmt.Sprintf("%d", event.ProjectID)
+					defaultBranchCache[event.ProjectID] = "main"
 				}
 			}
 		}
@@ -124,7 +128,7 @@ func runActivityList(cmd *cobra.Command, args []string) error {
 	// Transform to ActivityEntry
 	activities := make([]gitlab.ActivityEntry, 0, len(events))
 	for _, event := range events {
-		entry := transformEvent(event, projectCache, mrCache, client)
+		entry := transformEvent(event, projectCache, defaultBranchCache, mrCache, client)
 		activities = append(activities, entry)
 	}
 
@@ -138,7 +142,7 @@ func runActivityList(cmd *cobra.Command, args []string) error {
 	return outputTable(activities, fromDate, toDate)
 }
 
-func transformEvent(event gitlab.Event, projectCache map[int]string, mrCache map[string]*gitlab.MergeRequest, client *gitlab.Client) gitlab.ActivityEntry {
+func transformEvent(event gitlab.Event, projectCache map[int]string, defaultBranchCache map[int]string, mrCache map[string]*gitlab.MergeRequest, client *gitlab.Client) gitlab.ActivityEntry {
 	// Parse timestamp
 	t, _ := time.Parse(time.RFC3339, event.CreatedAt)
 	date := t.Format("2006-01-02")
@@ -153,7 +157,7 @@ func transformEvent(event gitlab.Event, projectCache map[int]string, mrCache map
 	// Build description, details, and branch info
 	description := ""
 	details := make(map[string]interface{})
-	var source, target string
+	var source, target, task string
 
 	switch {
 	case event.PushData != nil:
@@ -170,11 +174,32 @@ func transformEvent(event gitlab.Event, projectCache map[int]string, mrCache map
 			description = "deleted branch"
 			details["action"] = "deleted"
 		}
+		// Extract task from branch name first
+		task = extractTaskFromBranch(pd.Ref)
+		// If no task in branch and it's a default branch, try commit message
+		if task == "" && pd.CommitCount > 0 {
+			defaultBranch := defaultBranchCache[event.ProjectID]
+			if pd.Ref == defaultBranch || pd.Ref == "main" || pd.Ref == "master" {
+				// Fetch latest commit to extract task
+				commits, err := client.GetCommits(event.ProjectID, pd.Ref, 1)
+				if err == nil && len(commits) > 0 {
+					task = extractTaskFromString(commits[0].Title)
+					if task == "" {
+						task = extractTaskFromString(commits[0].Message)
+					}
+				}
+			}
+		}
 	case event.TargetType == "MergeRequest":
 		mr := getMRCached(event.ProjectID, event.TargetIID, mrCache, client)
 		if mr != nil {
 			source = mr.SourceBranch
 			target = mr.TargetBranch
+			// Extract task from source branch first, then MR title
+			task = extractTaskFromBranch(mr.SourceBranch)
+			if task == "" {
+				task = extractTaskFromString(mr.Title)
+			}
 		}
 		description = fmt.Sprintf("MR !%d: %s", event.TargetIID, event.TargetTitle)
 		details["mr_iid"] = event.TargetIID
@@ -190,12 +215,16 @@ func transformEvent(event gitlab.Event, projectCache map[int]string, mrCache map
 			description += ": " + event.TargetTitle
 		}
 		details["noteable_type"] = noteType
-		// If comment is on MR, get branch info
+		// If comment is on MR, get branch info and task
 		if event.Note.NoteableType == "MergeRequest" {
 			mr := getMRCached(event.ProjectID, event.TargetIID, mrCache, client)
 			if mr != nil {
 				source = mr.SourceBranch
 				target = mr.TargetBranch
+				task = extractTaskFromBranch(mr.SourceBranch)
+				if task == "" {
+					task = extractTaskFromString(mr.Title)
+				}
 			}
 		}
 	default:
@@ -213,6 +242,7 @@ func transformEvent(event gitlab.Event, projectCache map[int]string, mrCache map
 		Project:     projectName,
 		Source:      source,
 		Target:      target,
+		Task:        task,
 		Description: description,
 		Details:     details,
 	}
@@ -230,6 +260,20 @@ func getMRCached(projectID, mrIID int, cache map[string]*gitlab.MergeRequest, cl
 	}
 	cache[key] = mr
 	return mr
+}
+
+var taskRegex = regexp.MustCompile(`#(\d{4,})`)
+
+func extractTaskFromBranch(branchName string) string {
+	return extractTaskFromString(branchName)
+}
+
+func extractTaskFromString(s string) string {
+	matches := taskRegex.FindStringSubmatch(s)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+	return ""
 }
 
 func truncate(s string, maxLen int) string {
