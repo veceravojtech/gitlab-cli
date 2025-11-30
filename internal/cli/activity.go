@@ -268,7 +268,7 @@ func getMRCached(projectID, mrIID int, cache map[string]*gitlab.MergeRequest, cl
 	return mr
 }
 
-var taskRegex = regexp.MustCompile(`#(\d{4,})`)
+var taskRegex = regexp.MustCompile(`#(\d{5})`)
 
 func extractTaskFromBranch(branchName string) string {
 	return extractTaskFromString(branchName)
