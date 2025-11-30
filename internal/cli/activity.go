@@ -27,11 +27,12 @@ var activityListCmd = &cobra.Command{
 }
 
 var (
-	activityPrev   bool
-	activityFrom   string
-	activityTo     string
-	activityJSON   bool
-	activityFormat string
+	activityPrev        bool
+	activityFrom        string
+	activityTo          string
+	activityJSON        bool
+	activityFormat      string
+	activityGroupByTask bool
 )
 
 func init() {
@@ -43,6 +44,7 @@ func init() {
 	activityListCmd.Flags().StringVar(&activityTo, "to", "", "end date (YYYY-MM-DD)")
 	activityListCmd.Flags().BoolVar(&activityJSON, "json", false, "output as JSON")
 	activityListCmd.Flags().StringVar(&activityFormat, "format", "", "output format (csv)")
+	activityListCmd.Flags().BoolVar(&activityGroupByTask, "group-by-task", false, "group activities by task")
 }
 
 func getMonthRange(prev bool) (string, string) {
