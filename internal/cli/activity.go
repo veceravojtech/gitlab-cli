@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -334,4 +335,77 @@ func outputJSON(activities []gitlab.ActivityEntry) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(activities)
+}
+
+func outputGroupedTable(activities []gitlab.ActivityEntry, from, to string) error {
+	fmt.Printf("Activity: %d events (%s to %s) - Grouped by Task\n\n", len(activities), from, to)
+
+	if len(activities) == 0 {
+		fmt.Println("No activities found")
+		return nil
+	}
+
+	// Group by date, then by task
+	type groupKey struct {
+		date string
+		task string
+	}
+	grouped := make(map[groupKey][]gitlab.ActivityEntry)
+	dates := make(map[string]bool)
+	tasks := make(map[string]bool)
+
+	for _, a := range activities {
+		task := a.Task
+		if task == "" {
+			task = "Unassigned"
+		}
+		key := groupKey{date: a.Date, task: task}
+		grouped[key] = append(grouped[key], a)
+		dates[a.Date] = true
+		tasks[task] = true
+	}
+
+	// Sort dates descending
+	sortedDates := make([]string, 0, len(dates))
+	for d := range dates {
+		sortedDates = append(sortedDates, d)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(sortedDates)))
+
+	// Sort tasks (Unassigned always last)
+	sortedTasks := make([]string, 0, len(tasks))
+	for t := range tasks {
+		if t != "Unassigned" {
+			sortedTasks = append(sortedTasks, t)
+		}
+	}
+	sort.Strings(sortedTasks)
+	if tasks["Unassigned"] {
+		sortedTasks = append(sortedTasks, "Unassigned")
+	}
+
+	// Output grouped
+	for _, date := range sortedDates {
+		fmt.Printf("%s:\n", date)
+		for _, task := range sortedTasks {
+			key := groupKey{date: date, task: task}
+			entries, ok := grouped[key]
+			if !ok || len(entries) == 0 {
+				continue
+			}
+			fmt.Printf("  %s:\n", task)
+			for _, a := range entries {
+				fmt.Printf("    - %s  %-12s  %-12s  %-18s  %s\n",
+					a.Time,
+					truncate(a.Type, 12),
+					truncate(a.Project, 12),
+					truncate(a.Source, 18),
+					truncate(a.Description, 40),
+				)
+			}
+		}
+		fmt.Println()
+	}
+
+	return nil
 }
