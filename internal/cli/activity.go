@@ -272,6 +272,12 @@ var taskRegex = regexp.MustCompile(`#(\d{5})`)
 var branchTaskRegex = regexp.MustCompile(`(?:^|/)(\d{5})-`)
 
 func extractTaskFromBranch(branchName string) string {
+	// Try branch-specific pattern first: feature/12345-desc or 12345-desc
+	matches := branchTaskRegex.FindStringSubmatch(branchName)
+	if len(matches) > 1 {
+		return "#" + matches[1]
+	}
+	// Fall back to #12345 pattern
 	return extractTaskFromString(branchName)
 }
 
