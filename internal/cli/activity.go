@@ -142,6 +142,9 @@ func runActivityList(cmd *cobra.Command, args []string) error {
 	if activityFormat == "csv" {
 		return outputCSV(activities)
 	}
+	if activityGroupByTask {
+		return outputGroupedTable(activities, fromDate, toDate)
+	}
 	return outputTable(activities, fromDate, toDate)
 }
 
