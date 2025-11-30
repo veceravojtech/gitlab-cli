@@ -241,6 +241,11 @@ func transformEvent(event gitlab.Event, projectCache map[int]string, defaultBran
 		}
 	}
 
+	// Final fallback: extract task from TargetTitle if still unassigned
+	if task == "" && event.TargetTitle != "" {
+		task = extractTaskFromString(event.TargetTitle)
+	}
+
 	return gitlab.ActivityEntry{
 		Date:        date,
 		Time:        timeStr,
@@ -258,6 +263,9 @@ func getMRCached(projectID, mrIID int, cache map[string]*gitlab.MergeRequest, cl
 	key := fmt.Sprintf("%d-%d", projectID, mrIID)
 	if mr, ok := cache[key]; ok {
 		return mr
+	}
+	if client == nil {
+		return nil
 	}
 	mr, err := client.GetMR(projectID, mrIID)
 	if err != nil {
