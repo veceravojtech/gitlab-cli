@@ -53,3 +53,18 @@ func (c *Client) GetProject(projectID int) (*Project, error) {
 
 	return &project, nil
 }
+
+func (c *Client) GetCommits(projectID int, refName string, limit int) ([]Commit, error) {
+	params := url.Values{}
+	params.Set("ref_name", refName)
+	params.Set("per_page", fmt.Sprintf("%d", limit))
+
+	path := fmt.Sprintf("/projects/%d/repository/commits?%s", projectID, params.Encode())
+
+	var commits []Commit
+	if err := c.get(path, &commits); err != nil {
+		return nil, fmt.Errorf("fetching commits for project %d ref %s: %w", projectID, refName, err)
+	}
+
+	return commits, nil
+}
