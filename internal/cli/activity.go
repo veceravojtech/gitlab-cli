@@ -248,15 +248,17 @@ func outputTable(activities []gitlab.ActivityEntry, from, to string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "DATE\tTIME\tTYPE\tPROJECT\tDESCRIPTION")
+	fmt.Fprintln(w, "DATE\tTIME\tTYPE\tPROJECT\tSOURCE\tTARGET\tDESCRIPTION")
 
 	for _, a := range activities {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			a.Date,
 			a.Time,
 			a.Type,
 			truncate(a.Project, 20),
-			truncate(a.Description, 60),
+			truncate(a.Source, 18),
+			truncate(a.Target, 12),
+			truncate(a.Description, 50),
 		)
 	}
 
