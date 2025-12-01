@@ -87,9 +87,11 @@ type NoteData struct {
 }
 
 type Commit struct {
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Message string `json:"message"`
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Message      string `json:"message"`
+	AuthoredDate string `json:"authored_date"`
+	AuthorName   string `json:"author_name"`
 }
 
 type Project struct {
