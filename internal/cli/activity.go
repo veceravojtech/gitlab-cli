@@ -36,6 +36,11 @@ var (
 	activityGroupByTask bool
 )
 
+const (
+	commitDateFetchThreshold = 10  // Fetch commit dates for pushes with this many commits
+	maxCommitsToFetch        = 100 // Limit commits fetched per push
+)
+
 func init() {
 	rootCmd.AddCommand(activityCmd)
 	activityCmd.AddCommand(activityListCmd)
@@ -137,6 +142,9 @@ func runActivityList(cmd *cobra.Command, args []string) error {
 
 	// Output based on format
 	if activityJSON {
+		if activityGroupByTask {
+			return outputGroupedJSON(activities)
+		}
 		return outputJSON(activities)
 	}
 	if activityFormat == "csv" {
@@ -173,6 +181,16 @@ func transformEvent(event gitlab.Event, projectCache map[int]string, defaultBran
 		if pd.CommitCount > 0 {
 			description = fmt.Sprintf("%d commit(s)", pd.CommitCount)
 			details["commits"] = pd.CommitCount
+
+			// Fetch commit date range for high-commit pushes
+			if pd.CommitCount >= commitDateFetchThreshold {
+				dateRange := client.GetCommitDateRange(event.ProjectID, pd.Ref, maxCommitsToFetch)
+				if dateRange.FetchError != "" {
+					details["commit_fetch_failed"] = true
+				} else if dateRange.SpanDays > 0 {
+					details["commit_date_range_days"] = dateRange.SpanDays
+				}
+			}
 		} else if pd.Action == "created" {
 			description = "created branch"
 			details["action"] = "created"
@@ -353,6 +371,85 @@ func outputJSON(activities []gitlab.ActivityEntry) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(activities)
+}
+
+func outputGroupedJSON(activities []gitlab.ActivityEntry) error {
+	// Group by date, then by task (same structure as outputGroupedTable)
+	type groupKey struct {
+		date string
+		task string
+	}
+	grouped := make(map[groupKey][]gitlab.ActivityEntry)
+	dates := make(map[string]bool)
+	tasksPerDate := make(map[string]map[string]bool)
+
+	for _, a := range activities {
+		task := a.Task
+		if task == "" {
+			task = "Unassigned"
+		}
+		key := groupKey{date: a.Date, task: task}
+		grouped[key] = append(grouped[key], a)
+		dates[a.Date] = true
+		if tasksPerDate[a.Date] == nil {
+			tasksPerDate[a.Date] = make(map[string]bool)
+		}
+		tasksPerDate[a.Date][task] = true
+	}
+
+	// Sort dates descending
+	sortedDates := make([]string, 0, len(dates))
+	for d := range dates {
+		sortedDates = append(sortedDates, d)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(sortedDates)))
+
+	// Build ordered output: Date -> Task -> Activities
+	type taskGroup struct {
+		Task       string                 `json:"task"`
+		Activities []gitlab.ActivityEntry `json:"activities"`
+	}
+	type dateGroup struct {
+		Date  string      `json:"date"`
+		Tasks []taskGroup `json:"tasks"`
+	}
+
+	result := make([]dateGroup, 0, len(sortedDates))
+	for _, date := range sortedDates {
+		// Sort tasks for this date (Unassigned always last)
+		tasksForDate := tasksPerDate[date]
+		sortedTasks := make([]string, 0, len(tasksForDate))
+		for t := range tasksForDate {
+			if t != "Unassigned" {
+				sortedTasks = append(sortedTasks, t)
+			}
+		}
+		sort.Strings(sortedTasks)
+		if tasksForDate["Unassigned"] {
+			sortedTasks = append(sortedTasks, "Unassigned")
+		}
+
+		// Build task groups for this date
+		taskGroups := make([]taskGroup, 0, len(sortedTasks))
+		for _, task := range sortedTasks {
+			key := groupKey{date: date, task: task}
+			if entries, ok := grouped[key]; ok && len(entries) > 0 {
+				taskGroups = append(taskGroups, taskGroup{
+					Task:       task,
+					Activities: entries,
+				})
+			}
+		}
+
+		result = append(result, dateGroup{
+			Date:  date,
+			Tasks: taskGroups,
+		})
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(result)
 }
 
 func outputGroupedTable(activities []gitlab.ActivityEntry, from, to string) error {
