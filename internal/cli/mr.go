@@ -435,6 +435,33 @@ func runMRMerge(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("cannot merge: conflicts detected\nResolve manually: %s", mr.WebURL)
 
 		case "checking", "unchecked", "ci_still_running":
+			// Check actual pipeline status - GitLab's detailed_merge_status can lag
+			if mr.HeadPipeline != nil {
+				switch mr.HeadPipeline.Status {
+				case "success":
+					// Pipeline is done, attempt merge even if detailed_merge_status lags
+					prog.StopWait()
+					prog.Action("CI complete, merging...")
+					if err := client.MergeMR(mr.ProjectID, mr.IID); err != nil {
+						if mergeAutoRebase && strings.Contains(err.Error(), "rebase") {
+							prog.Action("Merge failed, needs rebase")
+							lastStatus = "" // Force status refresh
+							continue
+						}
+						return err
+					}
+					prog.Success("MR merged successfully (%s total)", prog.TotalTime())
+					return nil
+				case "failed":
+					prog.StopWait()
+					prog.Error("Pipeline failed")
+					return fmt.Errorf("cannot merge: pipeline failed\nCheck pipeline: %s", mr.HeadPipeline.WebURL)
+				case "canceled":
+					prog.StopWait()
+					prog.Error("Pipeline canceled")
+					return fmt.Errorf("cannot merge: pipeline was canceled\nCheck pipeline: %s", mr.HeadPipeline.WebURL)
+				}
+			}
 			statsFunc := func() string {
 				if mr.HeadPipeline == nil {
 					return ""
