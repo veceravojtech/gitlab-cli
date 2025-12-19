@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -85,6 +84,8 @@ var (
 	mergeAutoRebase bool
 	mergeMaxRetries int
 	mergeTimeout    string
+	noCacheFlag     bool
+	selectIndex     int
 
 	// mr create flags
 	createProject            string
@@ -122,6 +123,12 @@ func init() {
 	mrCmd.AddCommand(mrLabelCmd)
 	mrCmd.AddCommand(mrAutoMergeCmd)
 	mrCmd.AddCommand(mrReviewerCmd)
+
+	// Persistent flag for cache bypass - inherited by all MR subcommands
+	mrCmd.PersistentFlags().BoolVar(&noCacheFlag, "no-cache", false, "bypass MR list cache")
+
+	// Persistent flag for match selection - inherited by all MR subcommands
+	mrCmd.PersistentFlags().IntVar(&selectIndex, "select", 0, "select match by index when multiple found")
 
 	mrListCmd.Flags().IntVar(&listProject, "project", 0, "filter by project ID")
 	mrListCmd.Flags().BoolVar(&listMine, "mine", false, "only MRs assigned to me")
@@ -212,11 +219,6 @@ func runMRList(cmd *cobra.Command, args []string) error {
 }
 
 func runMRShow(cmd *cobra.Command, args []string) error {
-	mrID, err := strconv.Atoi(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid MR ID: %s", args[0])
-	}
-
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -228,7 +230,14 @@ func runMRShow(cmd *cobra.Command, args []string) error {
 
 	client := gitlab.NewClient(cfg.GitLabURL, cfg.GitLabToken)
 
-	mr, err := client.GetMRByGlobalID(mrID)
+	// Resolution layer: supports #NNNNN (task number), NNNNN (IID), and large numbers (global ID fallback)
+	result, err := ResolveIdentifier(client, args[0])
+	if err != nil {
+		return err
+	}
+	PrintResolutionInfo(result)
+
+	mr, err := client.GetMRByGlobalID(result.GlobalID)
 	if err != nil {
 		return err
 	}
@@ -260,11 +269,6 @@ func runMRShow(cmd *cobra.Command, args []string) error {
 }
 
 func runMRRebase(cmd *cobra.Command, args []string) error {
-	mrID, err := strconv.Atoi(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid MR ID: %s", args[0])
-	}
-
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -275,9 +279,17 @@ func runMRRebase(cmd *cobra.Command, args []string) error {
 	}
 
 	client := gitlab.NewClient(cfg.GitLabURL, cfg.GitLabToken)
+
+	// Resolution layer: supports #NNNNN (task number), NNNNN (IID), and large numbers (global ID fallback)
+	result, err := ResolveIdentifier(client, args[0])
+	if err != nil {
+		return err
+	}
+	PrintResolutionInfo(result)
+
 	prog := progress.New()
 
-	mr, err := client.GetMRByGlobalID(mrID)
+	mr, err := client.GetMRByGlobalID(result.GlobalID)
 	if err != nil {
 		return err
 	}
@@ -324,11 +336,6 @@ func runMRRebase(cmd *cobra.Command, args []string) error {
 }
 
 func runMRMerge(cmd *cobra.Command, args []string) error {
-	mrID, err := strconv.Atoi(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid MR ID: %s", args[0])
-	}
-
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -344,13 +351,21 @@ func runMRMerge(cmd *cobra.Command, args []string) error {
 	}
 
 	client := gitlab.NewClient(cfg.GitLabURL, cfg.GitLabToken)
+
+	// Resolution layer: supports #NNNNN (task number), NNNNN (IID), and large numbers (global ID fallback)
+	result, err := ResolveIdentifier(client, args[0])
+	if err != nil {
+		return err
+	}
+	PrintResolutionInfo(result)
+
 	deadline := time.Now().Add(timeout)
 	attempt := 0
 
 	prog := progress.New()
 
 	// Get initial MR info for header
-	mr, err := client.GetMRByGlobalID(mrID)
+	mr, err := client.GetMRByGlobalID(result.GlobalID)
 	if err != nil {
 		return err
 	}
@@ -364,7 +379,7 @@ func runMRMerge(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("timeout exceeded (%s)", mergeTimeout)
 		}
 
-		mr, err = client.GetMRByGlobalID(mrID)
+		mr, err = client.GetMRByGlobalID(result.GlobalID)
 		if err != nil {
 			prog.StopWait()
 			return err
@@ -394,7 +409,7 @@ func runMRMerge(cmd *cobra.Command, args []string) error {
 		case "need_rebase", "cannot_be_merged_recheck":
 			prog.StopWait()
 			if !mergeAutoRebase {
-				return fmt.Errorf("MR needs rebase. Run with --auto-rebase or: gitlab-cli mr rebase %d", mrID)
+				return fmt.Errorf("MR needs rebase. Run with --auto-rebase or: gitlab-cli mr rebase %d", result.GlobalID)
 			}
 
 			attempt++
@@ -524,11 +539,6 @@ func runMRCreate(cmd *cobra.Command, args []string) error {
 }
 
 func runMRLabel(cmd *cobra.Command, args []string) error {
-	mrID, err := strconv.Atoi(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid MR ID: %s", args[0])
-	}
-
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -540,7 +550,14 @@ func runMRLabel(cmd *cobra.Command, args []string) error {
 
 	client := gitlab.NewClient(cfg.GitLabURL, cfg.GitLabToken)
 
-	mr, err := client.GetMRByGlobalID(mrID)
+	// Resolution layer: supports #NNNNN (task number), NNNNN (IID), and large numbers (global ID fallback)
+	result, err := ResolveIdentifier(client, args[0])
+	if err != nil {
+		return err
+	}
+	PrintResolutionInfo(result)
+
+	mr, err := client.GetMRByGlobalID(result.GlobalID)
 	if err != nil {
 		return err
 	}
@@ -599,11 +616,6 @@ func runMRLabel(cmd *cobra.Command, args []string) error {
 }
 
 func runMRReviewer(cmd *cobra.Command, args []string) error {
-	mrID, err := strconv.Atoi(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid MR ID: %s", args[0])
-	}
-
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -615,7 +627,14 @@ func runMRReviewer(cmd *cobra.Command, args []string) error {
 
 	client := gitlab.NewClient(cfg.GitLabURL, cfg.GitLabToken)
 
-	mr, err := client.GetMRByGlobalID(mrID)
+	// Resolution layer: supports #NNNNN (task number), NNNNN (IID), and large numbers (global ID fallback)
+	result, err := ResolveIdentifier(client, args[0])
+	if err != nil {
+		return err
+	}
+	PrintResolutionInfo(result)
+
+	mr, err := client.GetMRByGlobalID(result.GlobalID)
 	if err != nil {
 		return err
 	}

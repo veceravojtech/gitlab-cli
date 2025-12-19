@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/spf13/cobra"
 	"github.com/user/gitlab-cli/internal/config"
@@ -10,11 +9,6 @@ import (
 )
 
 func runMRAutoMerge(cmd *cobra.Command, args []string) error {
-	mrID, err := strconv.Atoi(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid MR ID: %s", args[0])
-	}
-
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -26,7 +20,14 @@ func runMRAutoMerge(cmd *cobra.Command, args []string) error {
 
 	client := gitlab.NewClient(cfg.GitLabURL, cfg.GitLabToken)
 
-	mr, err := client.GetMRByGlobalID(mrID)
+	// Resolution layer: supports #NNNNN (task number), NNNNN (IID), and large numbers (global ID fallback)
+	result, err := ResolveIdentifier(client, args[0])
+	if err != nil {
+		return err
+	}
+	PrintResolutionInfo(result)
+
+	mr, err := client.GetMRByGlobalID(result.GlobalID)
 	if err != nil {
 		return err
 	}
