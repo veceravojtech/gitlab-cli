@@ -903,9 +903,9 @@ func TestLabelListHandler(t *testing.T) {
 
 func TestConfigShowHandler(t *testing.T) {
 	tests := []struct {
-		name         string
-		token        string
-		wantMasked   string
+		name        string
+		token       string
+		wantMasked  string
 		wantTokenSet bool
 	}{
 		{

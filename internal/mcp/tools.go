@@ -170,11 +170,11 @@ func (s *Server) MRCreateHandler(ctx context.Context, req *sdkmcp.CallToolReques
 // --- mr-merge ---
 
 type MRMergeInput struct {
-	ProjectID  int    `json:"project_id"             jsonschema:"Project ID,required"`
-	MRIID      int    `json:"mr_iid"                 jsonschema:"Merge request IID,required"`
-	AutoRebase bool   `json:"auto_rebase,omitempty"   jsonschema:"Automatically rebase if needed"`
-	MaxRetries int    `json:"max_retries,omitempty"   jsonschema:"Max rebase attempts (default 3)"`
-	Timeout    string `json:"timeout,omitempty"       jsonschema:"Overall timeout duration (default 5m)"`
+	ProjectID    int    `json:"project_id"             jsonschema:"Project ID,required"`
+	MRIID        int    `json:"mr_iid"                 jsonschema:"Merge request IID,required"`
+	AutoRebase   bool   `json:"auto_rebase,omitempty"   jsonschema:"Automatically rebase if needed"`
+	MaxRetries   int    `json:"max_retries,omitempty"   jsonschema:"Max rebase attempts (default 3)"`
+	Timeout      string `json:"timeout,omitempty"       jsonschema:"Overall timeout duration (default 5m)"`
 }
 
 type MRMergeOutput struct {
@@ -787,3 +787,4 @@ func mapMergeopsError(err error) error {
 		return fmt.Errorf("merge operation failed: %w", err)
 	}
 }
+
