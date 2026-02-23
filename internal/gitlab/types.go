@@ -10,23 +10,24 @@ type User struct {
 }
 
 type MergeRequest struct {
-	ID                   int    `json:"id"`
-	IID                  int    `json:"iid"`
-	ProjectID            int    `json:"project_id"`
-	Title                string `json:"title"`
-	Description          string `json:"description"`
-	State                string `json:"state"`
-	SourceBranch         string `json:"source_branch"`
-	TargetBranch         string `json:"target_branch"`
-	Author               User   `json:"author"`
-	WebURL               string `json:"web_url"`
-	DetailedMergeStatus  string `json:"detailed_merge_status"`
-	HasConflicts         bool   `json:"has_conflicts"`
-	RebaseInProgress     bool      `json:"rebase_in_progress"`
-	MergeError           string    `json:"merge_error"`
-	HeadPipeline         *Pipeline `json:"head_pipeline"`
-	Labels               []string  `json:"labels"`
-	Reviewers            []User    `json:"reviewers"`
+	ID                  int       `json:"id"`
+	IID                 int       `json:"iid"`
+	ProjectID           int       `json:"project_id"`
+	Title               string    `json:"title"`
+	Description         string    `json:"description"`
+	State               string    `json:"state"`
+	SourceBranch        string    `json:"source_branch"`
+	TargetBranch        string    `json:"target_branch"`
+	Author              User      `json:"author"`
+	WebURL              string    `json:"web_url"`
+	DetailedMergeStatus string    `json:"detailed_merge_status"`
+	HasConflicts        bool      `json:"has_conflicts"`
+	RebaseInProgress    bool      `json:"rebase_in_progress"`
+	MergeError          string    `json:"merge_error"`
+	HeadPipeline        *Pipeline `json:"head_pipeline"`
+	Labels              []string  `json:"labels"`
+	Reviewers           []User    `json:"reviewers"`
+	Assignees           []User    `json:"assignees"`
 }
 
 type Pipeline struct {
@@ -35,6 +36,17 @@ type Pipeline struct {
 	Ref    string `json:"ref"`
 	SHA    string `json:"sha"`
 	WebURL string `json:"web_url"`
+}
+
+type PipelineInfo struct {
+	ID        int    `json:"id"`
+	IID       int    `json:"iid"`
+	Status    string `json:"status"`
+	Ref       string `json:"ref"`
+	SHA       string `json:"sha"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	WebURL    string `json:"web_url"`
 }
 
 type PipelineJob struct {
@@ -61,16 +73,16 @@ type ListMROptions struct {
 }
 
 type Event struct {
-	ID          int        `json:"id"`
-	ActionName  string     `json:"action_name"`
-	CreatedAt   string     `json:"created_at"`
-	ProjectID   int        `json:"project_id"`
-	TargetType  string     `json:"target_type"`
-	TargetID    int        `json:"target_id"`
-	TargetIID   int        `json:"target_iid"`
-	TargetTitle string     `json:"target_title"`
-	PushData    *PushData  `json:"push_data"`
-	Note        *NoteData  `json:"note"`
+	ID          int       `json:"id"`
+	ActionName  string    `json:"action_name"`
+	CreatedAt   string    `json:"created_at"`
+	ProjectID   int       `json:"project_id"`
+	TargetType  string    `json:"target_type"`
+	TargetID    int       `json:"target_id"`
+	TargetIID   int       `json:"target_iid"`
+	TargetTitle string    `json:"target_title"`
+	PushData    *PushData `json:"push_data"`
+	Note        *NoteData `json:"note"`
 }
 
 type PushData struct {
@@ -177,6 +189,22 @@ type CreateMROptions struct {
 	Squash             bool
 	RemoveSourceBranch bool
 	AllowCollaboration bool
+}
+
+type UpdateMROptions struct {
+	Title              *string
+	Description        *string
+	TargetBranch       *string
+	AssigneeIDs        []int
+	ReviewerIDs        []int
+	Labels             *string
+	MilestoneID        *int
+	StateEvent         *string
+	Draft              *bool
+	RemoveSourceBranch *bool
+	Squash             *bool
+	DiscussionLocked   *bool
+	AllowCollaboration *bool
 }
 
 type ListProjectsOptions struct {

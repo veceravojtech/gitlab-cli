@@ -207,6 +207,74 @@ func (c *Client) UpdateMRReviewers(projectID, iid int, reviewerIDs []int) (*Merg
 	return &mr, nil
 }
 
+func (c *Client) UpdateMRAssignees(projectID, iid int, assigneeIDs []int) (*MergeRequest, error) {
+	path := fmt.Sprintf("/projects/%d/merge_requests/%d", projectID, iid)
+	body := map[string]interface{}{
+		"assignee_ids": assigneeIDs,
+	}
+	var mr MergeRequest
+	if err := c.putWithBody(path, body, &mr); err != nil {
+		return nil, fmt.Errorf("updating MR assignees: %w", err)
+	}
+	return &mr, nil
+}
+
+func (c *Client) UpdateMR(projectID, iid int, opts UpdateMROptions) (*MergeRequest, error) {
+	path := fmt.Sprintf("/projects/%d/merge_requests/%d", projectID, iid)
+
+	body := make(map[string]interface{})
+	if opts.Title != nil {
+		body["title"] = *opts.Title
+	}
+	if opts.Description != nil {
+		body["description"] = *opts.Description
+	}
+	if opts.TargetBranch != nil {
+		body["target_branch"] = *opts.TargetBranch
+	}
+	if opts.AssigneeIDs != nil {
+		body["assignee_ids"] = opts.AssigneeIDs
+	}
+	if opts.ReviewerIDs != nil {
+		body["reviewer_ids"] = opts.ReviewerIDs
+	}
+	if opts.Labels != nil {
+		body["labels"] = *opts.Labels
+	}
+	if opts.MilestoneID != nil {
+		body["milestone_id"] = *opts.MilestoneID
+	}
+	if opts.StateEvent != nil {
+		body["state_event"] = *opts.StateEvent
+	}
+	if opts.Draft != nil {
+		body["draft"] = *opts.Draft
+	}
+	if opts.RemoveSourceBranch != nil {
+		body["remove_source_branch"] = *opts.RemoveSourceBranch
+	}
+	if opts.Squash != nil {
+		body["squash"] = *opts.Squash
+	}
+	if opts.DiscussionLocked != nil {
+		body["discussion_locked"] = *opts.DiscussionLocked
+	}
+	if opts.AllowCollaboration != nil {
+		body["allow_collaboration"] = *opts.AllowCollaboration
+	}
+
+	if len(body) == 0 {
+		return nil, fmt.Errorf("updating MR: no fields to update")
+	}
+
+	var mr MergeRequest
+	if err := c.putWithBody(path, body, &mr); err != nil {
+		return nil, fmt.Errorf("updating MR: %w", err)
+	}
+
+	return &mr, nil
+}
+
 func (c *Client) SetAutoMerge(projectID, iid int) error {
 	path := fmt.Sprintf("/projects/%d/merge_requests/%d/merge", projectID, iid)
 
@@ -262,4 +330,15 @@ func (c *Client) GetMRLabelEvents(projectID, iid int) ([]LabelEvent, error) {
 	}
 
 	return events, nil
+}
+
+func (c *Client) GetMRPipelines(projectID, mrIID int) ([]PipelineInfo, error) {
+	path := fmt.Sprintf("/projects/%d/merge_requests/%d/pipelines?per_page=100", projectID, mrIID)
+
+	var pipelines []PipelineInfo
+	if err := c.get(path, &pipelines); err != nil {
+		return nil, fmt.Errorf("getting MR pipelines: %w", err)
+	}
+
+	return pipelines, nil
 }
