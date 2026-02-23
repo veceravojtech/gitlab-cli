@@ -34,6 +34,7 @@ var (
 	activityJSON        bool
 	activityFormat      string
 	activityGroupByTask bool
+	activityPipelines   bool
 )
 
 const (
@@ -51,6 +52,7 @@ func init() {
 	activityListCmd.Flags().BoolVar(&activityJSON, "json", false, "output as JSON")
 	activityListCmd.Flags().StringVar(&activityFormat, "format", "", "output format (csv)")
 	activityListCmd.Flags().BoolVar(&activityGroupByTask, "group-by-task", false, "group activities by task")
+	activityListCmd.Flags().BoolVar(&activityPipelines, "pipelines", false, "include pipeline runs from assigned MRs")
 }
 
 func getMonthRange(prev bool) (string, string) {
@@ -138,6 +140,22 @@ func runActivityList(cmd *cobra.Command, args []string) error {
 	for _, event := range events {
 		entry := transformEvent(event, projectCache, defaultBranchCache, mrCache, client)
 		activities = append(activities, entry)
+	}
+
+	// Optionally fetch pipeline activities
+	if activityPipelines {
+		pipelineActivities, err := fetchPipelineActivities(client, projectCache, fromDate, toDate)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to fetch pipeline activities: %v\n", err)
+		} else {
+			activities = append(activities, pipelineActivities...)
+			sort.Slice(activities, func(i, j int) bool {
+				if activities[i].Date != activities[j].Date {
+					return activities[i].Date > activities[j].Date
+				}
+				return activities[i].Time > activities[j].Time
+			})
+		}
 	}
 
 	// Output based on format
@@ -313,6 +331,79 @@ func extractTaskFromString(s string) string {
 		return "#" + matches[1]
 	}
 	return ""
+}
+
+func fetchPipelineActivities(client *gitlab.Client, projectCache map[int]string, fromDate, toDate string) ([]gitlab.ActivityEntry, error) {
+	mrs, err := client.ListMRs(gitlab.ListMROptions{
+		Scope:   "assigned_to_me",
+		State:   "all",
+		PerPage: 100,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("fetching assigned MRs: %w", err)
+	}
+
+	var activities []gitlab.ActivityEntry
+	var fromTime, toTime time.Time
+	if fromDate != "" {
+		fromTime, _ = time.Parse("2006-01-02", fromDate)
+	}
+	if toDate != "" {
+		toTime, _ = time.Parse("2006-01-02", toDate)
+		toTime = toTime.Add(24*time.Hour - time.Second)
+	}
+
+	for _, mr := range mrs {
+		pipelines, err := client.GetMRPipelines(mr.ProjectID, mr.IID)
+		if err != nil {
+			continue
+		}
+
+		projectName := projectCache[mr.ProjectID]
+		if projectName == "" {
+			projectName = fmt.Sprintf("%d", mr.ProjectID)
+		}
+
+		for _, p := range pipelines {
+			pTime, err := time.Parse(time.RFC3339, p.CreatedAt)
+			if err != nil {
+				continue
+			}
+
+			if !fromTime.IsZero() && pTime.Before(fromTime) {
+				continue
+			}
+			if !toTime.IsZero() && pTime.After(toTime) {
+				continue
+			}
+
+			description := fmt.Sprintf("pipeline %s", p.Status)
+			task := extractTaskFromBranch(p.Ref)
+			if task == "" {
+				task = extractTaskFromString(mr.Title)
+			}
+
+			activities = append(activities, gitlab.ActivityEntry{
+				Date:        pTime.Format("2006-01-02"),
+				Time:        pTime.Format("15:04"),
+				Type:        "pipeline",
+				Project:     projectName,
+				Source:      p.Ref,
+				Target:      fmt.Sprintf("!%d", mr.IID),
+				Task:        task,
+				Description: description,
+				Details: map[string]interface{}{
+					"pipeline_id": p.ID,
+					"status":      p.Status,
+					"sha":         p.SHA,
+					"web_url":     p.WebURL,
+					"mr_iid":      mr.IID,
+				},
+			})
+		}
+	}
+
+	return activities, nil
 }
 
 func truncate(s string, maxLen int) string {

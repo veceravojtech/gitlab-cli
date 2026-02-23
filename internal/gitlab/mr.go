@@ -263,3 +263,14 @@ func (c *Client) GetMRLabelEvents(projectID, iid int) ([]LabelEvent, error) {
 
 	return events, nil
 }
+
+func (c *Client) GetMRPipelines(projectID, mrIID int) ([]PipelineInfo, error) {
+	path := fmt.Sprintf("/projects/%d/merge_requests/%d/pipelines?per_page=100", projectID, mrIID)
+
+	var pipelines []PipelineInfo
+	if err := c.get(path, &pipelines); err != nil {
+		return nil, fmt.Errorf("getting MR pipelines: %w", err)
+	}
+
+	return pipelines, nil
+}

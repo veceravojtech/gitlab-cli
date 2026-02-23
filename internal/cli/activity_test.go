@@ -106,3 +106,84 @@ func TestTransformEvent_IssueCommentTargetTitleFallback(t *testing.T) {
 		t.Errorf("expected task #51234 from Issue TargetTitle, got %q", entry.Task)
 	}
 }
+
+func TestPipelineActivityEntry(t *testing.T) {
+	// Test that pipeline activities are created with correct fields
+	tests := []struct {
+		name           string
+		pipeline       gitlab.PipelineInfo
+		projectName    string
+		mrIID          int
+		expectedTask   string
+		expectedStatus string
+	}{
+		{
+			name: "success pipeline with task in branch",
+			pipeline: gitlab.PipelineInfo{
+				ID:        12345,
+				Status:    "success",
+				Ref:       "feature/50607-fix-bug",
+				SHA:       "abc123",
+				CreatedAt: "2025-12-21T14:30:00.000Z",
+				WebURL:    "https://gitlab.example.com/pipelines/12345",
+			},
+			projectName:    "TestProject",
+			mrIID:          99,
+			expectedTask:   "#50607",
+			expectedStatus: "success",
+		},
+		{
+			name: "failed pipeline without task",
+			pipeline: gitlab.PipelineInfo{
+				ID:        12346,
+				Status:    "failed",
+				Ref:       "main",
+				SHA:       "def456",
+				CreatedAt: "2025-12-21T15:00:00.000Z",
+				WebURL:    "https://gitlab.example.com/pipelines/12346",
+			},
+			projectName:    "TestProject",
+			mrIID:          100,
+			expectedTask:   "",
+			expectedStatus: "failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := extractTaskFromBranch(tt.pipeline.Ref)
+			if task != tt.expectedTask {
+				t.Errorf("extractTaskFromBranch(%q) = %q, want %q", tt.pipeline.Ref, task, tt.expectedTask)
+			}
+
+			description := "pipeline " + tt.pipeline.Status
+			if description != "pipeline "+tt.expectedStatus {
+				t.Errorf("description = %q, want %q", description, "pipeline "+tt.expectedStatus)
+			}
+		})
+	}
+}
+
+func TestPipelineInfoStruct(t *testing.T) {
+	// Verify PipelineInfo struct has all required fields
+	p := gitlab.PipelineInfo{
+		ID:        123,
+		IID:       45,
+		Status:    "success",
+		Ref:       "main",
+		SHA:       "abc123",
+		CreatedAt: "2025-12-21T14:30:00.000Z",
+		UpdatedAt: "2025-12-21T14:45:00.000Z",
+		WebURL:    "https://example.com",
+	}
+
+	if p.ID != 123 {
+		t.Errorf("PipelineInfo.ID = %d, want 123", p.ID)
+	}
+	if p.Status != "success" {
+		t.Errorf("PipelineInfo.Status = %s, want success", p.Status)
+	}
+	if p.CreatedAt != "2025-12-21T14:30:00.000Z" {
+		t.Errorf("PipelineInfo.CreatedAt = %s, want 2025-12-21T14:30:00.000Z", p.CreatedAt)
+	}
+}

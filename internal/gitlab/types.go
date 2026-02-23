@@ -37,6 +37,17 @@ type Pipeline struct {
 	WebURL string `json:"web_url"`
 }
 
+type PipelineInfo struct {
+	ID        int    `json:"id"`
+	IID       int    `json:"iid"`
+	Status    string `json:"status"`
+	Ref       string `json:"ref"`
+	SHA       string `json:"sha"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	WebURL    string `json:"web_url"`
+}
+
 type PipelineJob struct {
 	ID     int    `json:"id"`
 	Name   string `json:"name"`
