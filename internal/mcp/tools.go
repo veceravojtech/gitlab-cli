@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"time"
 
@@ -170,11 +171,11 @@ func (s *Server) MRCreateHandler(ctx context.Context, req *sdkmcp.CallToolReques
 // --- mr-merge ---
 
 type MRMergeInput struct {
-	ProjectID    int    `json:"project_id"             jsonschema:"Project ID,required"`
-	MRIID        int    `json:"mr_iid"                 jsonschema:"Merge request IID,required"`
-	AutoRebase   bool   `json:"auto_rebase,omitempty"   jsonschema:"Automatically rebase if needed"`
-	MaxRetries   int    `json:"max_retries,omitempty"   jsonschema:"Max rebase attempts (default 3)"`
-	Timeout      string `json:"timeout,omitempty"       jsonschema:"Overall timeout duration (default 5m)"`
+	ProjectID  int    `json:"project_id"             jsonschema:"Project ID,required"`
+	MRIID      int    `json:"mr_iid"                 jsonschema:"Merge request IID,required"`
+	AutoRebase bool   `json:"auto_rebase,omitempty"   jsonschema:"Automatically rebase if needed"`
+	MaxRetries int    `json:"max_retries,omitempty"   jsonschema:"Max rebase attempts (default 3)"`
+	Timeout    string `json:"timeout,omitempty"       jsonschema:"Overall timeout duration (default 5m)"`
 }
 
 type MRMergeOutput struct {
@@ -524,6 +525,92 @@ func (s *Server) MRAutoMergeHandler(ctx context.Context, req *sdkmcp.CallToolReq
 	return nil, MRAutoMergeOutput{Enabled: true}, nil
 }
 
+// --- mr-resolve ---
+
+type MRResolveInput struct {
+	Identifier int `json:"identifier" jsonschema:"Numeric identifier: MR IID, Redmine task number, or global MR ID,required"`
+}
+
+type MRResolveOutput struct {
+	ProjectID    int             `json:"project_id"`
+	MRIID        int             `json:"mr_iid"`
+	GlobalID     int             `json:"global_id"`
+	Title        string          `json:"title"`
+	MatchType    string          `json:"match_type"`
+	WebURL       string          `json:"web_url"`
+	Alternatives []MRAlternative `json:"alternatives,omitempty"`
+}
+
+func (s *Server) MRResolveHandler(ctx context.Context, req *sdkmcp.CallToolRequest, input MRResolveInput) (*sdkmcp.CallToolResult, MRResolveOutput, error) {
+	if input.Identifier <= 0 {
+		return nil, MRResolveOutput{}, fmt.Errorf("%w: identifier is required and must be positive", ErrMissingParam)
+	}
+
+	mrs, err := s.client.ListMRs(gitlab.ListMROptions{Scope: "assigned_to_me"})
+	if err != nil {
+		return nil, MRResolveOutput{}, fmt.Errorf("%w: %v", ErrGitLabAPI, err)
+	}
+
+	// Priority 1: IID match
+	var iidMatches []gitlab.MergeRequest
+	for _, mr := range mrs {
+		if mr.IID == input.Identifier {
+			iidMatches = append(iidMatches, mr)
+		}
+	}
+	if len(iidMatches) > 0 {
+		return nil, buildMRResolveResult(iidMatches[0], "iid", iidMatches), nil
+	}
+
+	// Priority 2: Task# match (regex #NNNNN with word boundary)
+	pattern := fmt.Sprintf(`#%d(?:[^a-zA-Z0-9]|$)`, input.Identifier)
+	re := regexp.MustCompile(pattern)
+	var taskMatches []gitlab.MergeRequest
+	for _, mr := range mrs {
+		if re.MatchString(mr.Title) {
+			taskMatches = append(taskMatches, mr)
+		}
+	}
+	if len(taskMatches) > 0 {
+		return nil, buildMRResolveResult(taskMatches[0], "task#", taskMatches), nil
+	}
+
+	// Priority 3: Global ID fallback (only for large numbers)
+	if input.Identifier > 10000 {
+		mr, err := s.client.GetMRByGlobalID(input.Identifier)
+		if err == nil {
+			return nil, buildMRResolveResult(*mr, "global_id", nil), nil
+		}
+	}
+
+	return nil, MRResolveOutput{}, fmt.Errorf("%w: no MR found for identifier %d", ErrMRNotFound, input.Identifier)
+}
+
+func buildMRResolveResult(mr gitlab.MergeRequest, matchType string, allMatches []gitlab.MergeRequest) MRResolveOutput {
+	out := MRResolveOutput{
+		ProjectID: mr.ProjectID,
+		MRIID:     mr.IID,
+		GlobalID:  mr.ID,
+		Title:     mr.Title,
+		MatchType: matchType,
+		WebURL:    mr.WebURL,
+	}
+	if len(allMatches) > 1 {
+		alts := make([]MRAlternative, len(allMatches))
+		for i, m := range allMatches {
+			alts[i] = MRAlternative{
+				ProjectID: m.ProjectID,
+				MRIID:     m.IID,
+				GlobalID:  m.ID,
+				Title:     m.Title,
+				WebURL:    m.WebURL,
+			}
+		}
+		out.Alternatives = alts
+	}
+	return out
+}
+
 // --- activity-list ---
 
 type ActivityListInput struct {
@@ -787,4 +874,3 @@ func mapMergeopsError(err error) error {
 		return fmt.Errorf("merge operation failed: %w", err)
 	}
 }
-

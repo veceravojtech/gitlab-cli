@@ -21,8 +21,8 @@ var cacheDir string
 
 // MRCache holds cached MR list data with a timestamp for TTL validation.
 type MRCache struct {
-	Timestamp time.Time              `json:"timestamp"`
-	MRs       []gitlab.MergeRequest  `json:"mrs"`
+	Timestamp time.Time             `json:"timestamp"`
+	MRs       []gitlab.MergeRequest `json:"mrs"`
 }
 
 // IsValid returns true if the cache is not nil and within the TTL window.

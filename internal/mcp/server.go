@@ -61,7 +61,7 @@ func NewServerWithClient(client GitLabClient, cfg *config.Config) *Server {
 	return &Server{client: client, config: cfg}
 }
 
-// RegisterTools registers all 15 MCP tools on the SDK server.
+// RegisterTools registers all 16 MCP tools on the SDK server.
 func (s *Server) RegisterTools(sdkServer *sdkmcp.Server) {
 	falseVal := false
 
@@ -85,6 +85,16 @@ func (s *Server) RegisterTools(sdkServer *sdkmcp.Server) {
 			DestructiveHint: &falseVal,
 		},
 	}, s.MRShowHandler)
+
+	sdkmcp.AddTool(sdkServer, &sdkmcp.Tool{
+		Name:        "mr-resolve",
+		Description: "Resolve a numeric identifier (MR IID, task number, or global ID) to a specific merge request",
+		Annotations: &sdkmcp.ToolAnnotations{
+			ReadOnlyHint:    true,
+			IdempotentHint:  true,
+			DestructiveHint: &falseVal,
+		},
+	}, s.MRResolveHandler)
 
 	sdkmcp.AddTool(sdkServer, &sdkmcp.Tool{
 		Name:        "activity-list",

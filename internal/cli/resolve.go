@@ -43,8 +43,8 @@ type ResolutionResult struct {
 
 // MultiMatchError is returned when multiple MRs match the identifier
 type MultiMatchError struct {
-	Input   string                  // Original input
-	Matches []gitlab.MergeRequest   // All matching MRs
+	Input   string                // Original input
+	Matches []gitlab.MergeRequest // All matching MRs
 }
 
 func (e *MultiMatchError) Error() string {

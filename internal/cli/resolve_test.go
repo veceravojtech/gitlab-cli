@@ -19,12 +19,12 @@ func TestContainsTaskNumber(t *testing.T) {
 		{"#51706", 51706, true},
 		{"#51706 and #51707", 51706, true},
 		{"Work on task #51706.", 51706, true},
-		{"#516067", 51706, false},  // Different number (longer)
-		{"#5170", 51706, false},    // Different number (shorter)
-		{"51706", 51706, false},    // No # prefix
-		{"", 51706, false},         // Empty string
+		{"#516067", 51706, false}, // Different number (longer)
+		{"#5170", 51706, false},   // Different number (shorter)
+		{"51706", 51706, false},   // No # prefix
+		{"", 51706, false},        // Empty string
 		{"No task here", 51706, false},
-		{"#51706x", 51706, false},  // Followed by letter (not word boundary)
+		{"#51706x", 51706, false}, // Followed by letter (not word boundary)
 	}
 
 	for _, tt := range tests {
@@ -81,10 +81,10 @@ func TestResolveTaskNumber(t *testing.T) {
 			errContains: "No MR found matching",
 		},
 		{
-			name:    "empty MR list",
-			taskNum: 51706,
-			mrs:     []gitlab.MergeRequest{},
-			wantErr: true,
+			name:        "empty MR list",
+			taskNum:     51706,
+			mrs:         []gitlab.MergeRequest{},
+			wantErr:     true,
 			errContains: "No MR found matching",
 		},
 		{
@@ -486,11 +486,11 @@ func TestResolveUnified(t *testing.T) {
 			errContains: "No MR found with IID 99999 or task #99999",
 		},
 		{
-			name:     "empty MR list",
-			value:    51706,
-			rawInput: "51706",
-			mrs:      []gitlab.MergeRequest{},
-			wantErr:  true,
+			name:        "empty MR list",
+			value:       51706,
+			rawInput:    "51706",
+			mrs:         []gitlab.MergeRequest{},
+			wantErr:     true,
 			errContains: "No MR found with IID 51706 or task #51706",
 		},
 	}

@@ -732,6 +732,215 @@ func TestMRAutoMergeHandler(t *testing.T) {
 	}
 }
 
+func TestMRResolveHandler(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         MRResolveInput
+		setupClient   func() *mockGitLabClient
+		wantErr       bool
+		errContains   string
+		wantMatchType string
+		wantMRIID     int
+		wantAltsCount int
+	}{
+		{
+			name:  "iid match - single",
+			input: MRResolveInput{Identifier: 42},
+			setupClient: func() *mockGitLabClient {
+				return &mockGitLabClient{
+					listMRsFunc: func(opts gitlab.ListMROptions) ([]gitlab.MergeRequest, error) {
+						return []gitlab.MergeRequest{
+							{IID: 42, ID: 100, ProjectID: 1, Title: "Test MR", WebURL: "https://gl/mr/42"},
+						}, nil
+					},
+				}
+			},
+			wantMatchType: "iid",
+			wantMRIID:     42,
+			wantAltsCount: 0,
+		},
+		{
+			name:  "iid match - multiple projects",
+			input: MRResolveInput{Identifier: 42},
+			setupClient: func() *mockGitLabClient {
+				return &mockGitLabClient{
+					listMRsFunc: func(opts gitlab.ListMROptions) ([]gitlab.MergeRequest, error) {
+						return []gitlab.MergeRequest{
+							{IID: 42, ID: 100, ProjectID: 1, Title: "MR in proj 1"},
+							{IID: 42, ID: 200, ProjectID: 2, Title: "MR in proj 2"},
+						}, nil
+					},
+				}
+			},
+			wantMatchType: "iid",
+			wantMRIID:     42,
+			wantAltsCount: 2,
+		},
+		{
+			name:  "task# match - single",
+			input: MRResolveInput{Identifier: 51755},
+			setupClient: func() *mockGitLabClient {
+				return &mockGitLabClient{
+					listMRsFunc: func(opts gitlab.ListMROptions) ([]gitlab.MergeRequest, error) {
+						return []gitlab.MergeRequest{
+							{IID: 999, ID: 300, ProjectID: 1, Title: "Fix #51755 bug"},
+						}, nil
+					},
+				}
+			},
+			wantMatchType: "task#",
+			wantMRIID:     999,
+			wantAltsCount: 0,
+		},
+		{
+			name:  "task# match - boundary check",
+			input: MRResolveInput{Identifier: 51755},
+			setupClient: func() *mockGitLabClient {
+				return &mockGitLabClient{
+					listMRsFunc: func(opts gitlab.ListMROptions) ([]gitlab.MergeRequest, error) {
+						return []gitlab.MergeRequest{
+							{IID: 999, ID: 300, ProjectID: 1, Title: "Fix #517551 bug"},
+						}, nil
+					},
+					getMRByGlobalIDFunc: func(id int) (*gitlab.MergeRequest, error) {
+						return nil, errors.New("not found")
+					},
+				}
+			},
+			wantErr:     true,
+			errContains: "no MR found",
+		},
+		{
+			name:  "task# match - end of string",
+			input: MRResolveInput{Identifier: 51755},
+			setupClient: func() *mockGitLabClient {
+				return &mockGitLabClient{
+					listMRsFunc: func(opts gitlab.ListMROptions) ([]gitlab.MergeRequest, error) {
+						return []gitlab.MergeRequest{
+							{IID: 999, ID: 300, ProjectID: 1, Title: "Fix #51755"},
+						}, nil
+					},
+				}
+			},
+			wantMatchType: "task#",
+			wantMRIID:     999,
+			wantAltsCount: 0,
+		},
+		{
+			name:  "global ID fallback",
+			input: MRResolveInput{Identifier: 99999},
+			setupClient: func() *mockGitLabClient {
+				return &mockGitLabClient{
+					listMRsFunc: func(opts gitlab.ListMROptions) ([]gitlab.MergeRequest, error) {
+						return []gitlab.MergeRequest{}, nil
+					},
+					getMRByGlobalIDFunc: func(id int) (*gitlab.MergeRequest, error) {
+						return &gitlab.MergeRequest{ID: 99999, IID: 50, ProjectID: 3, Title: "Global MR"}, nil
+					},
+				}
+			},
+			wantMatchType: "global_id",
+			wantMRIID:     50,
+			wantAltsCount: 0,
+		},
+		{
+			name:  "global ID skip for small numbers",
+			input: MRResolveInput{Identifier: 42},
+			setupClient: func() *mockGitLabClient {
+				return &mockGitLabClient{
+					listMRsFunc: func(opts gitlab.ListMROptions) ([]gitlab.MergeRequest, error) {
+						return []gitlab.MergeRequest{}, nil
+					},
+				}
+			},
+			wantErr:     true,
+			errContains: "no MR found",
+		},
+		{
+			name:  "no match at all",
+			input: MRResolveInput{Identifier: 99999},
+			setupClient: func() *mockGitLabClient {
+				return &mockGitLabClient{
+					listMRsFunc: func(opts gitlab.ListMROptions) ([]gitlab.MergeRequest, error) {
+						return []gitlab.MergeRequest{}, nil
+					},
+					getMRByGlobalIDFunc: func(id int) (*gitlab.MergeRequest, error) {
+						return nil, errors.New("not found")
+					},
+				}
+			},
+			wantErr:     true,
+			errContains: "no MR found",
+		},
+		{
+			name:  "missing identifier",
+			input: MRResolveInput{Identifier: 0},
+			setupClient: func() *mockGitLabClient {
+				return &mockGitLabClient{}
+			},
+			wantErr:     true,
+			errContains: "required",
+		},
+		{
+			name:  "ListMRs API error",
+			input: MRResolveInput{Identifier: 42},
+			setupClient: func() *mockGitLabClient {
+				return &mockGitLabClient{
+					listMRsFunc: func(opts gitlab.ListMROptions) ([]gitlab.MergeRequest, error) {
+						return nil, errors.New("network error")
+					},
+				}
+			},
+			wantErr:     true,
+			errContains: "network error",
+		},
+		{
+			name:  "iid preferred over task#",
+			input: MRResolveInput{Identifier: 100},
+			setupClient: func() *mockGitLabClient {
+				return &mockGitLabClient{
+					listMRsFunc: func(opts gitlab.ListMROptions) ([]gitlab.MergeRequest, error) {
+						return []gitlab.MergeRequest{
+							{IID: 100, ID: 500, ProjectID: 1, Title: "Other"},
+							{IID: 999, ID: 600, ProjectID: 1, Title: "Fix #100 task"},
+						}, nil
+					},
+				}
+			},
+			wantMatchType: "iid",
+			wantMRIID:     100,
+			wantAltsCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := testServer(tt.setupClient())
+			_, output, err := s.MRResolveHandler(context.Background(), nil, tt.input)
+
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			if output.MatchType != tt.wantMatchType {
+				t.Errorf("match_type = %q, want %q", output.MatchType, tt.wantMatchType)
+			}
+			if output.MRIID != tt.wantMRIID {
+				t.Errorf("mr_iid = %d, want %d", output.MRIID, tt.wantMRIID)
+			}
+			if len(output.Alternatives) != tt.wantAltsCount {
+				t.Errorf("alternatives count = %d, want %d", len(output.Alternatives), tt.wantAltsCount)
+			}
+		})
+	}
+}
+
 func TestActivityListHandler(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -903,9 +1112,9 @@ func TestLabelListHandler(t *testing.T) {
 
 func TestConfigShowHandler(t *testing.T) {
 	tests := []struct {
-		name        string
-		token       string
-		wantMasked  string
+		name         string
+		token        string
+		wantMasked   string
 		wantTokenSet bool
 	}{
 		{

@@ -76,3 +76,11 @@ type LabelOutput struct {
 	Color       string `json:"color"`
 	Description string `json:"description,omitempty"`
 }
+
+type MRAlternative struct {
+	ProjectID int    `json:"project_id"`
+	MRIID     int    `json:"mr_iid"`
+	GlobalID  int    `json:"global_id"`
+	Title     string `json:"title"`
+	WebURL    string `json:"web_url"`
+}
